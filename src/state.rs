@@ -2,10 +2,7 @@ use anyhow::Result;
 use log::Level;
 use std::sync::Arc;
 use wgpu::Color;
-use winit::{
-    dpi::PhysicalPosition, event::DeviceId, event_loop::ActiveEventLoop, keyboard::KeyCode,
-    window::Window,
-};
+use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
 
 pub struct State {
     surface: wgpu::Surface<'static>,
@@ -13,7 +10,7 @@ pub struct State {
     queue: wgpu::Queue,
     surface_config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
-    color: Color,
+    render_pipeline: wgpu::RenderPipeline,
     pub window: Arc<Window>,
 }
 
@@ -66,18 +63,65 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
+        // Or use include_wgsl! next time
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[], // Specifying the verticies
+            },
+            // Used when converting verticies to triangles
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false, // Antialiasing
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
+
         Ok(Self {
             window,
             device,
             queue,
             surface,
             surface_config,
-            color: Color {
-                r: 0.1,
-                g: 0.2,
-                b: 0.3,
-                a: 1.0,
-            },
+            render_pipeline,
             is_surface_configured: false,
         })
     }
@@ -89,20 +133,6 @@ impl State {
             self.surface.configure(&self.device, &self.surface_config);
             self.is_surface_configured = true;
         }
-    }
-
-    pub fn handle_mouse(&mut self, _device_id: DeviceId, position: PhysicalPosition<f64>) {
-        let size = self.window.inner_size();
-        let width = size.width as f64;
-        let height = size.height as f64;
-
-        // I just googled, im not sure how you get these colors.
-        let r = (position.x / width).clamp(0.0, 1.0);
-        let g = (position.y / height).clamp(0.0, 1.0);
-        let b = 1.0 - ((position.x + position.y) / (width + height)).clamp(0.0, 1.0);
-        let a = 1.0;
-
-        self.color = Color { r, g, b, a }
     }
 
     pub fn handle_key(&self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
@@ -138,13 +168,18 @@ impl State {
                 });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.color),
+                        load: wgpu::LoadOp::Clear(Color {
+                            r: 0.1,
+                            g: 0.2,
+                            b: 0.3,
+                            a: 1.0,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
@@ -153,6 +188,9 @@ impl State {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw(0..3, 0..1)
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
