@@ -1,7 +1,8 @@
 use anyhow::Result;
 use log::Level;
+use ocean::{Vertex, INDICES, VERTICES};
 use std::sync::Arc;
-use wgpu::Color;
+use wgpu::{util::DeviceExt, Color};
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
 
 pub struct State {
@@ -11,6 +12,9 @@ pub struct State {
     surface_config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
+    num_indices: u32,
+    index_buffer: wgpu::Buffer,
     pub window: Arc<Window>,
 }
 
@@ -83,7 +87,7 @@ impl State {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[], // Specifying the verticies
+                buffers: &[Vertex::desc()],
             },
             // Used when converting verticies to triangles
             primitive: wgpu::PrimitiveState {
@@ -115,6 +119,20 @@ impl State {
             cache: None,
         });
 
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let num_indices = INDICES.len() as u32;
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
         Ok(Self {
             window,
             device,
@@ -122,6 +140,9 @@ impl State {
             surface,
             surface_config,
             render_pipeline,
+            vertex_buffer,
+            num_indices,
+            index_buffer,
             is_surface_configured: false,
         })
     }
@@ -190,7 +211,9 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw(0..3, 0..1)
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
