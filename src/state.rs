@@ -1,7 +1,11 @@
 use anyhow::Result;
 use log::Level;
 use std::sync::Arc;
-use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
+use wgpu::Color;
+use winit::{
+    dpi::PhysicalPosition, event::DeviceId, event_loop::ActiveEventLoop, keyboard::KeyCode,
+    window::Window,
+};
 
 pub struct State {
     surface: wgpu::Surface<'static>,
@@ -9,6 +13,7 @@ pub struct State {
     queue: wgpu::Queue,
     surface_config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
+    color: Color,
     pub window: Arc<Window>,
 }
 
@@ -67,6 +72,12 @@ impl State {
             queue,
             surface,
             surface_config,
+            color: Color {
+                r: 0.1,
+                g: 0.2,
+                b: 0.3,
+                a: 1.0,
+            },
             is_surface_configured: false,
         })
     }
@@ -78,6 +89,20 @@ impl State {
             self.surface.configure(&self.device, &self.surface_config);
             self.is_surface_configured = true;
         }
+    }
+
+    pub fn handle_mouse(&mut self, _device_id: DeviceId, position: PhysicalPosition<f64>) {
+        let size = self.window.inner_size();
+        let width = size.width as f64;
+        let height = size.height as f64;
+
+        // I just googled, im not sure how you get these colors.
+        let r = (position.x / width).clamp(0.0, 1.0);
+        let g = (position.y / height).clamp(0.0, 1.0);
+        let b = 1.0 - ((position.x + position.y) / (width + height)).clamp(0.0, 1.0);
+        let a = 1.0;
+
+        self.color = Color { r, g, b, a }
     }
 
     pub fn handle_key(&self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
@@ -119,12 +144,7 @@ impl State {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(self.color),
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
