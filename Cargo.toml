@@ -11,3 +11,8 @@ log = "0.4.28"
 pollster = "0.4.0"
 wgpu = "27.0.1"
 winit = "0.30.12"
+
+[dependencies.image]
+version = "0.25.8"
+default-features = false
+features = ["png", "jpeg"]

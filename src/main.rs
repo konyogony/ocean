@@ -11,6 +11,7 @@ use winit::{
 };
 
 pub mod state;
+pub mod texture;
 
 pub struct App {
     state: Option<State>,

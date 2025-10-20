@@ -1,3 +1,4 @@
+use crate::texture::Texture;
 use anyhow::Result;
 use log::Level;
 use ocean::{Vertex, INDICES, VERTICES};
@@ -15,6 +16,8 @@ pub struct State {
     vertex_buffer: wgpu::Buffer,
     num_indices: u32,
     index_buffer: wgpu::Buffer,
+    diffuse_bind_group: wgpu::BindGroup,
+    diffuse_texture: Texture,
     pub window: Arc<Window>,
 }
 
@@ -67,6 +70,47 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
+        let diffuse_bytes = include_bytes!("tree.png");
+        let diffuse_texture = Texture::from_bytes(diffuse_bytes, &device, &queue, "tree").unwrap();
+
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("texture_bind_group_layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        count: None,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        count: None,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    },
+                ],
+            });
+
+        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            label: Some("diffuse_bind_group"),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+            ],
+        });
+
         // Or use include_wgsl! next time
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -76,7 +120,7 @@ impl State {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&texture_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -144,6 +188,8 @@ impl State {
             num_indices,
             index_buffer,
             is_surface_configured: false,
+            diffuse_bind_group,
+            diffuse_texture,
         })
     }
 
@@ -211,6 +257,7 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
