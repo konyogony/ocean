@@ -1,6 +1,8 @@
 use crate::state::State;
 use anyhow::Result;
 use std::sync::Arc;
+use winit::keyboard::KeyCode;
+use winit::window::CursorGrabMode;
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
@@ -10,6 +12,7 @@ use winit::{
     window::Window,
 };
 
+pub mod camera;
 pub mod state;
 pub mod texture;
 
@@ -30,6 +33,11 @@ impl ApplicationHandler<State> for App {
             .with_inner_size(LogicalSize::new(1920, 1080));
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
+        window.set_cursor_visible(false);
+        if window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
+            log::warn!("Could not lock cursor")
+        }
+
         self.state = Some(pollster::block_on(State::new(window)).unwrap());
     }
 
@@ -47,6 +55,9 @@ impl ApplicationHandler<State> for App {
             Some(canvas) => canvas,
             None => return,
         };
+
+        state.handle_window_event(&event);
+
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => state.resize(size.width, size.height),
@@ -66,13 +77,24 @@ impl ApplicationHandler<State> for App {
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
-                        physical_key: PhysicalKey::Code(code),
-                        state: key_state,
+                        physical_key: PhysicalKey::Code(KeyCode::Escape), // Only for escape
+                        state: ElementState::Pressed,
                         ..
                     },
                 ..
-            } => state.handle_key(event_loop, code, key_state.is_pressed()),
+            } => event_loop.exit(),
             _ => {}
+        }
+    }
+
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
+        if let Some(state) = &mut self.state {
+            state.handle_device_event(&event);
         }
     }
 }
