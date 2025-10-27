@@ -13,15 +13,23 @@ pub struct Camera {
     pub zfar: f32,
 }
 
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::from_cols(
-    cgmath::Vector4::new(1.0, 0.0, 0.0, 0.0),
-    cgmath::Vector4::new(0.0, 1.0, 0.0, 0.0),
-    cgmath::Vector4::new(0.0, 0.0, 0.5, 0.0),
-    cgmath::Vector4::new(0.0, 0.0, 0.5, 1.0),
-);
-
 impl Camera {
+    // Some more linear algebra magick since opengl and wgpu suck
+    pub fn build_wgpu_projection_matrix_rh(&self) -> cgmath::Matrix4<f32> {
+        let f = 1.0 / (self.fovy / 2.0).tan();
+        cgmath::Matrix4::from_cols(
+            cgmath::Vector4::new(f / self.aspect, 0.0, 0.0, 0.0),
+            cgmath::Vector4::new(0.0, f, 0.0, 0.0),
+            cgmath::Vector4::new(0.0, 0.0, self.zfar / (self.znear - self.zfar), -1.0),
+            cgmath::Vector4::new(
+                0.0,
+                0.0,
+                (self.zfar * self.znear) / (self.znear - self.zfar),
+                0.0,
+            ),
+        )
+    }
+
     pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
         // Linear algebra magick
         let (sin_pitch, cos_pitch) = self.pitch.0.sin_cos();
@@ -33,8 +41,8 @@ impl Camera {
         let target = self.eye + forward;
 
         let view = cgmath::Matrix4::look_at_rh(self.eye, target, self.up);
-        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-        OPENGL_TO_WGPU_MATRIX * proj * view
+        let proj = Self::build_wgpu_projection_matrix_rh(self);
+        proj * view
     }
 }
 

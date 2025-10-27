@@ -7,31 +7,6 @@ pub struct Vertex {
     tex_coords: [f32; 2],
 }
 
-pub const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-0.0868241, 0.49240386, 0.0],
-        tex_coords: [0.4131759, 0.00759614],
-    }, // A
-    Vertex {
-        position: [-0.49513406, 0.06958647, 0.0],
-        tex_coords: [0.0048659444, 0.43041354],
-    }, // B
-    Vertex {
-        position: [-0.21918549, -0.44939706, 0.0],
-        tex_coords: [0.28081453, 0.949397],
-    }, // C
-    Vertex {
-        position: [0.35966998, -0.3473291, 0.0],
-        tex_coords: [0.85967, 0.84732914],
-    }, // D
-    Vertex {
-        position: [0.44147372, 0.2347359, 0.0],
-        tex_coords: [0.9414737, 0.2652641],
-    }, // E
-];
-
-pub const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
-
 // Wizardry
 impl Vertex {
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
@@ -52,4 +27,39 @@ impl Vertex {
             ],
         }
     }
+}
+
+// Black magic
+pub fn generate_plane(size: u32, spacing: f32) -> (Vec<Vertex>, Vec<u32>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    for row in 0..=size {
+        for col in 0..=size {
+            vertices.push(Vertex {
+                position: [col as f32 * spacing, 0.0, row as f32 * spacing],
+                tex_coords: [col as f32 / size as f32, row as f32 / size as f32],
+            });
+        }
+    }
+
+    for row in 0..size {
+        for col in 0..size {
+            let top_left = row * (size + 1) + col;
+            let top_right = top_left + 1;
+            let bottom_left = top_left + (size + 1);
+            let bottom_right = bottom_left + 1;
+
+            indices.extend_from_slice(&[
+                top_left,
+                bottom_left,
+                top_right,
+                top_right,
+                bottom_left,
+                bottom_right,
+            ]);
+        }
+    }
+
+    (vertices, indices)
 }

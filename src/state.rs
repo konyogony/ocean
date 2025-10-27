@@ -4,10 +4,22 @@ use crate::{
 };
 use anyhow::Result;
 use cgmath::Deg;
-use ocean::{Vertex, INDICES, VERTICES};
+use ocean::{generate_plane, Vertex};
 use std::sync::Arc;
 use wgpu::{util::DeviceExt, Color};
 use winit::window::Window;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TimeUniform {
+    pub time_uniform: f32,
+}
+
+impl TimeUniform {
+    pub fn increment_time(&mut self, step: f32) {
+        self.time_uniform += step
+    }
+}
 
 pub struct State {
     surface: wgpu::Surface<'static>,
@@ -26,6 +38,9 @@ pub struct State {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     camera_controller: CameraController,
+    time_uniform: TimeUniform,
+    time_buffer: wgpu::Buffer,
+    time_bind_group: wgpu::BindGroup,
     pub window: Arc<Window>,
 }
 
@@ -78,7 +93,7 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
-        let diffuse_bytes = include_bytes!("tree.png");
+        let diffuse_bytes = include_bytes!("ocean.jpg");
         let diffuse_texture = Texture::from_bytes(diffuse_bytes, &device, &queue, "tree").unwrap();
 
         let texture_bind_group_layout =
@@ -172,10 +187,46 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
+        let time_uniform = TimeUniform { time_uniform: 0.00 };
+
+        let time_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Time Buffer"),
+            contents: bytemuck::cast_slice(&[time_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let time_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("time_bind_group_layour"),
+            });
+
+        let time_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &time_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: time_buffer.as_entire_binding(),
+            }],
+            label: Some("time_bind_group"),
+        });
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
+                bind_group_layouts: &[
+                    &texture_bind_group_layout,
+                    &camera_bind_group_layout,
+                    &time_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -218,17 +269,19 @@ impl State {
             cache: None,
         });
 
+        let (verticies, indicies) = generate_plane(16, 1.0);
+
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
+            contents: bytemuck::cast_slice(&verticies),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let num_indices = INDICES.len() as u32;
+        let num_indices = indicies.len() as u32;
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
+            contents: bytemuck::cast_slice(&indicies),
             usage: wgpu::BufferUsages::INDEX,
         });
 
@@ -250,6 +303,9 @@ impl State {
             camera_buffer,
             camera_bind_group,
             camera_controller,
+            time_uniform,
+            time_buffer,
+            time_bind_group,
         })
     }
 
@@ -273,10 +329,16 @@ impl State {
     pub fn update(&mut self) {
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
+        self.time_uniform.increment_time(0.016); // i think this is 60fps
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+        self.queue.write_buffer(
+            &self.time_buffer,
+            0,
+            bytemuck::cast_slice(&[self.time_uniform]),
         );
     }
 
@@ -323,8 +385,9 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.time_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
