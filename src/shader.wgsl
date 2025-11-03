@@ -1,19 +1,44 @@
+// just some random constants
+
+const g: f32 = 9.81;
+
+// Wave data
+
+struct WaveData {
+    wave_vector: vec2<f32>,
+    amplitude: f32,
+    phase_shift: f32,
+};
+
+struct WaveDataUniform {
+    waves: array<WaveData, 256>
+}
+
+@group(3) @binding(0)
+var<uniform> wave_data: WaveDataUniform;
+
+// Camera
+
 struct CameraUniform {
     view_proj: mat4x4<f32>,
 };
+
+@group(1) @binding(0)
+var<uniform> camera: CameraUniform;
+
+// Time
 
 struct TimeUniform {
     time_uniform: f32,
 }
 
-@group(1) @binding(0)
-var<uniform> camera: CameraUniform;
 @group(2) @binding(0)
 var<uniform> time: TimeUniform;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) tex_coords: vec2<f32>,
+    @location(2) index: u32,
 }
 
 struct VertexOutput {
@@ -26,9 +51,16 @@ fn vs_main(
     model: VertexInput,
 ) -> VertexOutput {
     var out: VertexOutput;
-    let pulse_x = sin(model.position.x + time.time_uniform * 0.2);
-    let pulse_z = cos(model.position.z + time.time_uniform * 0.1);
-    let position = vec3<f32>(model.position.x, model.position.y + pulse_z * pulse_x * 0.5, model.position.z);
+    let data = wave_data.waves[model.index];
+
+    let wave_number = length(data.wave_vector);
+    let angular_freq = sqrt(g * wave_number);
+    let dot_product = data.wave_vector.x * model.position.x + data.wave_vector.y * model.position.y;
+    let arg = dot_product - angular_freq * time.time_uniform + data.phase_shift;
+    let height = data.amplitude * sin(arg);
+
+    let position = vec3<f32>(model.position.x, height, model.position.z);
+
     out.tex_coords = model.tex_coords;
     out.clip_position = camera.view_proj * vec4<f32>(position, 1.0);
     return out;

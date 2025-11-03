@@ -1,3 +1,4 @@
+use crate::wave::{gather_wave_data, WaveDataUniform};
 use crate::{
     camera::{Camera, CameraController, CameraUniform},
     texture::Texture,
@@ -5,6 +6,7 @@ use crate::{
 use anyhow::Result;
 use cgmath::Deg;
 use ocean::{generate_plane, Vertex};
+use rand::seq::IndexedRandom;
 use std::sync::Arc;
 use wgpu::{util::DeviceExt, Color};
 use winit::window::Window;
@@ -41,6 +43,9 @@ pub struct State {
     time_uniform: TimeUniform,
     time_buffer: wgpu::Buffer,
     time_bind_group: wgpu::BindGroup,
+    wave_data_uniform_vec: Vec<WaveDataUniform>,
+    wave_data_buffer: wgpu::Buffer,
+    wave_data_bind_group: wgpu::BindGroup,
     pub window: Arc<Window>,
 }
 
@@ -219,6 +224,43 @@ impl State {
             label: Some("time_bind_group"),
         });
 
+        // Actual wave stuff
+        let (verticies, indicies) = generate_plane(16, 1.0);
+
+        let wave_data: Vec<WaveDataUniform> = gather_wave_data(verticies.len() as u64);
+
+        let wave_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Wave Data Buffer"),
+            contents: bytemuck::cast_slice(&wave_data),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let wave_data_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("wave_data_bind_group_layour"),
+            });
+
+        let wave_data_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &wave_data_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wave_data_buffer.as_entire_binding(),
+            }],
+            label: Some("wave_data_bind_group"),
+        });
+
+        // Boring stuff...
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
@@ -226,6 +268,7 @@ impl State {
                     &texture_bind_group_layout,
                     &camera_bind_group_layout,
                     &time_bind_group_layout,
+                    &wave_data_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -269,8 +312,6 @@ impl State {
             cache: None,
         });
 
-        let (verticies, indicies) = generate_plane(16, 1.0);
-
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
             contents: bytemuck::cast_slice(&verticies),
@@ -306,6 +347,9 @@ impl State {
             time_uniform,
             time_buffer,
             time_bind_group,
+            wave_data_buffer,
+            wave_data_bind_group,
+            wave_data_uniform_vec: wave_data,
         })
     }
 
@@ -329,7 +373,9 @@ impl State {
     pub fn update(&mut self) {
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
-        self.time_uniform.increment_time(0.016); // i think this is 60fps
+        self.time_uniform.increment_time(0.016 / 4.0);
+        // i think this is 60fps. But then divided
+        // by 4 cause it was too fast
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -386,6 +432,7 @@ impl State {
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(2, &self.time_bind_group, &[]);
+            render_pass.set_bind_group(3, &self.wave_data_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);

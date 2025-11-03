@@ -15,6 +15,7 @@ use winit::{
 pub mod camera;
 pub mod state;
 pub mod texture;
+pub mod wave;
 
 pub struct App {
     state: Option<State>,
@@ -28,8 +29,9 @@ impl App {
 
 impl ApplicationHandler<State> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let version = env!("CARGO_PKG_VERSION");
         let window_attributes = Window::default_attributes()
-            .with_title("Ocean Simulation")
+            .with_title(format!("Ocean Simulation, build {version}"))
             .with_inner_size(LogicalSize::new(1920, 1080));
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
