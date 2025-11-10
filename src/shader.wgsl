@@ -14,7 +14,7 @@ struct WaveDataUniform {
     waves: array<WaveData, 256>
 }
 
-@group(3) @binding(0)
+@group(2) @binding(0)
 var<uniform> wave_data: WaveDataUniform;
 
 // Camera
@@ -23,7 +23,7 @@ struct CameraUniform {
     view_proj: mat4x4<f32>,
 };
 
-@group(1) @binding(0)
+@group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
 // Time
@@ -32,7 +32,7 @@ struct TimeUniform {
     time_uniform: f32,
 }
 
-@group(2) @binding(0)
+@group(1) @binding(0)
 var<uniform> time: TimeUniform;
 
 struct VertexInput {
@@ -81,13 +81,24 @@ fn vs_main(
     return out;
 }
 
-@group(0) @binding(0)
-var t_diffuse: texture_2d<f32>;
-@group(0) @binding(1)
-var s_diffuse: sampler;
+// I removed textures to play with lighting
+// @group(0) @binding(0)
+// var t_diffuse: texture_2d<f32>;
+// @group(0) @binding(1)
+// var s_diffuse: sampler;
 
+// Insanely basic lighting model, where we hardcode a light source,
+// calculate the angle for diffuse strength and then just combine it all tg
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let base = textureSample(t_diffuse, s_diffuse, in.tex_coords);
-    return base;
+    // let base = textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    // Hardcoded light direction
+    let light_dir = normalize(vec3<f32>(0.5, 1.0, 0.5));
+
+    let diffuse_strength = max(dot(in.normal, light_dir), 0.5);
+
+    let water_color = vec3<f32>(0.1, 0.3, 0.8);
+    let final_color = water_color * diffuse_strength * (water_color * 0.1);
+
+    return vec4<f32>(final_color, 1.0);
 }
