@@ -44,6 +44,7 @@ struct VertexInput {
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
+    @location(1) normal: vec3<f32>,
 };
 
 @vertex
@@ -53,14 +54,28 @@ fn vs_main(
     var out: VertexOutput;
     let data = wave_data.waves[model.index];
 
+    // This is for displacing the vertex
     let wave_number = length(data.wave_vector);
     let angular_freq = sqrt(g * wave_number);
     let dot_product = data.wave_vector.x * model.position.x + data.wave_vector.y * model.position.y;
+
+    // Convert to dot() function
     let arg = dot_product - angular_freq * time.time_uniform + data.phase_shift;
     let height = data.amplitude * sin(arg);
 
     let position = vec3<f32>(model.position.x, height, model.position.z);
 
+    // This is for calculating the normal
+    // Get partial derivative of height with respect to x and y.
+    // Check screenshot "partial_dx_dy.png"
+    // By the way better to rename the dy to dh_dz
+    let dx = data.wave_vector.x * data.amplitude * cos(arg);
+    let dy = data.wave_vector.y * data.amplitude * cos(arg); // Y is the Z component
+
+    // Not normalized vector
+    let normal = vec3<f32>(-dx, 1.0, -dy);
+
+    out.normal = normalize(normal);
     out.tex_coords = model.tex_coords;
     out.clip_position = camera.view_proj * vec4<f32>(position, 1.0);
     return out;

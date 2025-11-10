@@ -6,7 +6,6 @@ use crate::{
 use anyhow::Result;
 use cgmath::Deg;
 use ocean::{generate_plane, Vertex};
-use rand::seq::IndexedRandom;
 use std::sync::Arc;
 use wgpu::{util::DeviceExt, Color};
 use winit::window::Window;

@@ -20,7 +20,7 @@ impl WaveDataUniform {
         // For now, we generate random values which we can tweak later on...
         WaveDataUniform {
             wave_vector: [rng.random_range(0.0..=0.5), rng.random_range(0.0..=0.5)],
-            amplitude: rng.random_range(0.0..=0.4),
+            amplitude: rng.random_range(0.0..=0.2),
             phase_shift: rng.random_range(0.0..=1.0),
         }
     }
