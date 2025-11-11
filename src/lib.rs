@@ -37,27 +37,36 @@ impl Vertex {
 }
 
 // Black magic
-pub fn generate_plane(size: u32, spacing: f32) -> (Vec<Vertex>, Vec<u32>) {
+// Okay I found a way to properlly have subdivisions, disclosure: I didnt make this.
+pub fn generate_plane(size: f32, subdivisions: u32) -> (Vec<Vertex>, Vec<u32>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
-    let mut i = 0;
-    for row in 0..=size {
-        for col in 0..=size {
+    let step = size / subdivisions as f32;
+    let half_size = size / 2.0;
+
+    for row in 0..=subdivisions {
+        for col in 0..=subdivisions {
+            // Subtract half_size to shift the coordinates
+            let x = col as f32 * step - half_size;
+            let z = row as f32 * step - half_size;
+
             vertices.push(Vertex {
-                position: [col as f32 * spacing, 0.0, row as f32 * spacing],
-                tex_coords: [col as f32 / size as f32, row as f32 / size as f32],
-                index: i,
+                position: [x, 0.0, z],
+                tex_coords: [
+                    col as f32 / subdivisions as f32,
+                    row as f32 / subdivisions as f32,
+                ],
+                index: (row * (subdivisions + 1) + col),
             });
-            i += 1;
         }
     }
 
-    for row in 0..size {
-        for col in 0..size {
-            let top_left = row * (size + 1) + col;
+    for row in 0..subdivisions {
+        for col in 0..subdivisions {
+            let top_left = row * (subdivisions + 1) + col;
             let top_right = top_left + 1;
-            let bottom_left = top_left + (size + 1);
+            let bottom_left = top_left + (subdivisions + 1);
             let bottom_right = bottom_left + 1;
 
             indices.extend_from_slice(&[

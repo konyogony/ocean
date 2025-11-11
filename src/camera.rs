@@ -1,8 +1,9 @@
 use cgmath::{Deg, InnerSpace, Rad, SquareMatrix};
-use winit::event::{DeviceEvent, ElementState, KeyEvent, WindowEvent};
+use winit::event::{DeviceEvent, ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 pub struct Camera {
+    pub forward: cgmath::Vector3<f32>,
     pub eye: cgmath::Point3<f32>,
     pub yaw: Rad<f32>,
     pub pitch: Rad<f32>,
@@ -30,18 +31,21 @@ impl Camera {
         )
     }
 
-    pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
+    pub fn build_view_projection_matrix(&mut self) -> cgmath::Matrix4<f32> {
         // Linear algebra magick
         let (sin_pitch, cos_pitch) = self.pitch.0.sin_cos();
         let (sin_yaw, cos_yaw) = self.yaw.0.sin_cos();
 
-        let forward =
+        // We already calculated the direction we are looking here, just have to add it to rest of
+        // the struct. Used for blinn phong model
+        self.forward =
             cgmath::Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize();
 
-        let target = self.eye + forward;
+        let target = self.eye + self.forward;
 
         let view = cgmath::Matrix4::look_at_rh(self.eye, target, self.up);
-        let proj = Self::build_wgpu_projection_matrix_rh(self);
+        // Didnt know you could do this :/
+        let proj = self.build_wgpu_projection_matrix_rh();
         proj * view
     }
 }
@@ -50,6 +54,8 @@ impl Camera {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraUniform {
     pub view_proj: [[f32; 4]; 4],
+    pub view_dir: [f32; 3],
+    pub _padding: u32,
 }
 
 impl Default for CameraUniform {
@@ -62,11 +68,14 @@ impl CameraUniform {
     pub fn new() -> Self {
         Self {
             view_proj: cgmath::Matrix4::identity().into(),
+            view_dir: [0.0; 3],
+            _padding: 0,
         }
     }
 
-    pub fn update_view_proj(&mut self, camera: &Camera) {
+    pub fn update_view_proj(&mut self, camera: &mut Camera) {
         self.view_proj = camera.build_view_projection_matrix().into();
+        self.view_dir = camera.forward.into();
     }
 }
 
@@ -117,19 +126,19 @@ impl CameraController {
             } => {
                 let is_pressed = *state == ElementState::Pressed;
                 match keycode {
-                    KeyCode::KeyW | KeyCode::ArrowUp => {
+                    KeyCode::KeyW => {
                         self.is_forward_pressed = is_pressed;
                         true
                     }
-                    KeyCode::KeyS | KeyCode::ArrowDown => {
+                    KeyCode::KeyS => {
                         self.is_backward_pressed = is_pressed;
                         true
                     }
-                    KeyCode::KeyA | KeyCode::ArrowLeft => {
+                    KeyCode::KeyA => {
                         self.is_left_pressed = is_pressed;
                         true
                     }
-                    KeyCode::KeyD | KeyCode::ArrowRight => {
+                    KeyCode::KeyD => {
                         self.is_right_pressed = is_pressed;
                         true
                     }
@@ -145,6 +154,14 @@ impl CameraController {
                         self.is_cntrl_pressed = is_pressed;
                         true
                     }
+                    // KeyCode::ArrowUp => {
+                    //     self.is_arrowup_pressed = is_pressed;
+                    //     true
+                    // }
+                    // KeyCode::ArrowDown => {
+                    //     self.is_arrowdown_pressed = is_pressed;
+                    //     true
+                    // }
                     _ => false,
                 }
             }
@@ -157,6 +174,13 @@ impl CameraController {
             DeviceEvent::MouseMotion { delta } => {
                 self.mouse_dx += delta.0 as f32;
                 self.mouse_dy += delta.1 as f32;
+                true
+            }
+            // Needs fixing
+            DeviceEvent::MouseWheel { delta } => {
+                if let MouseScrollDelta::LineDelta(_, y) = delta {
+                    self.speed += y.signum() * 10.0;
+                }
                 true
             }
             _ => false,

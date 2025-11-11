@@ -1,11 +1,13 @@
 use crate::camera::{Camera, CameraController, CameraUniform};
-use crate::wave::{gather_wave_data, WaveDataUniform};
+use crate::wave::{gather_wave_data, WaveData, WaveDataUniform};
 use anyhow::Result;
-use cgmath::Deg;
+use cgmath::{Deg, Zero};
 use ocean::{generate_plane, Vertex};
 use std::sync::Arc;
 use wgpu::{util::DeviceExt, Color};
 use winit::window::Window;
+
+pub const WAVE_NUMBER: usize = 64;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -39,7 +41,7 @@ pub struct State {
     time_uniform: TimeUniform,
     time_buffer: wgpu::Buffer,
     time_bind_group: wgpu::BindGroup,
-    wave_data_uniform_vec: Vec<WaveDataUniform>,
+    wave_data_uniform: WaveDataUniform,
     wave_data_buffer: wgpu::Buffer,
     wave_data_bind_group: wgpu::BindGroup,
     pub window: Arc<Window>,
@@ -135,7 +137,8 @@ impl State {
         //     ],
         // });
 
-        let camera = Camera {
+        let mut camera = Camera {
+            forward: cgmath::Vector3::zero(),
             eye: (0.0, 1.0, 2.0).into(),
             yaw: Deg(-90.0).into(),
             pitch: Deg(-20.0).into(),
@@ -147,7 +150,7 @@ impl State {
         };
 
         let mut camera_uniform = CameraUniform::default();
-        camera_uniform.update_view_proj(&camera);
+        camera_uniform.update_view_proj(&mut camera);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -159,7 +162,7 @@ impl State {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -180,7 +183,7 @@ impl State {
         });
 
         // Speed, Sensitivity, Speed boost (cntrl)
-        let camera_controller = CameraController::new(0.002, 0.002, 1.5);
+        let camera_controller = CameraController::new(0.002, 0.002, 5.0);
 
         // Or use include_wgsl! next time
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -221,13 +224,22 @@ impl State {
         });
 
         // Actual wave stuff
-        let (verticies, indicies) = generate_plane(16, 1.0);
+        let (verticies, indicies) = generate_plane(64.0, 200);
 
-        let wave_data: Vec<WaveDataUniform> = gather_wave_data(verticies.len() as u64);
+        let mut waves = [WaveData::default(); WAVE_NUMBER];
+        for (i, w) in gather_wave_data(WAVE_NUMBER)
+            .into_iter()
+            .enumerate()
+            .take(WAVE_NUMBER)
+        {
+            waves[i] = w;
+        }
+
+        let wave_data_uniform = WaveDataUniform { waves };
 
         let wave_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Wave Data Buffer"),
-            contents: bytemuck::cast_slice(&wave_data),
+            contents: bytemuck::bytes_of(&wave_data_uniform),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -345,7 +357,7 @@ impl State {
             time_bind_group,
             wave_data_buffer,
             wave_data_bind_group,
-            wave_data_uniform_vec: wave_data,
+            wave_data_uniform,
         })
     }
 
@@ -368,10 +380,10 @@ impl State {
 
     pub fn update(&mut self) {
         self.camera_controller.update_camera(&mut self.camera);
-        self.camera_uniform.update_view_proj(&self.camera);
-        self.time_uniform.increment_time(0.016 / 4.0);
+        self.camera_uniform.update_view_proj(&mut self.camera);
+        self.time_uniform.increment_time(0.016 / 8.0);
         // i think this is 60fps. But then divided
-        // by 4 cause it was too fast
+        // by 8 cause it was too fast
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
