@@ -24,12 +24,18 @@ impl Default for WaveData {
 
 impl WaveData {
     pub fn new() -> Self {
+        // TODO: Find out whats going on here and why we use these values
         let mut rng = rand::rng();
-        // For now, we generate random values which we can tweak later on...
+
+        let theta = rng.random_range(0.0..std::f32::consts::TAU);
+        let wavelength = rng.random_range(2.0..60.0);
+        let k = std::f32::consts::TAU / wavelength;
+        let amplitude = wavelength * rng.random_range(0.004..0.012);
+
         WaveData {
-            wave_vector: [rng.random_range(0.0..=0.5), rng.random_range(0.0..=0.5)],
-            amplitude: rng.random_range(0.0..=0.15),
-            phase_shift: rng.random_range(0.0..=1.0),
+            wave_vector: [theta.cos() * k, theta.sin() * k],
+            amplitude,
+            phase_shift: rng.random_range(0.0..std::f32::consts::TAU),
         }
     }
 }

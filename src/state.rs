@@ -1,4 +1,5 @@
 use crate::camera::{Camera, CameraController, CameraUniform};
+use crate::texture::Texture;
 use crate::wave::{gather_wave_data, WaveData, WaveDataUniform};
 use anyhow::Result;
 use cgmath::{Deg, Zero};
@@ -8,6 +9,20 @@ use wgpu::{util::DeviceExt, Color};
 use winit::window::Window;
 
 pub const WAVE_NUMBER: usize = 64;
+
+const SKYBOX_VERTICES: &[f32] = &[
+    -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, -1.0, 1.0, -1.0,
+    -1.0, 1.0, 1.0, -1.0, -1.0, 1.0, -1.0,
+];
+
+const SKYBOX_INDICES: &[u16] = &[
+    0, 1, 2, 2, 3, 0, // Front
+    1, 5, 6, 6, 2, 1, // Right
+    5, 4, 7, 7, 6, 5, // Back
+    4, 0, 3, 3, 7, 4, // Left
+    3, 2, 6, 6, 7, 3, // Top
+    4, 5, 1, 1, 0, 4, // Bottom
+];
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -38,11 +53,20 @@ pub struct State {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     camera_controller: CameraController,
+
+    depth_texture: Texture,
+    _skybox_texture: Texture,
+    skybox_render_pipeline: wgpu::RenderPipeline,
+    skybox_bind_group: wgpu::BindGroup,
+    skybox_vertex_buffer: wgpu::Buffer,
+    skybox_index_buffer: wgpu::Buffer,
+    num_skybox_indices: u32,
+
     time_uniform: TimeUniform,
     time_buffer: wgpu::Buffer,
     time_bind_group: wgpu::BindGroup,
-    wave_data_uniform: WaveDataUniform,
-    wave_data_buffer: wgpu::Buffer,
+    _wave_data_uniform: WaveDataUniform,
+    _wave_data_buffer: wgpu::Buffer,
     wave_data_bind_group: wgpu::BindGroup,
     pub window: Arc<Window>,
 }
@@ -96,6 +120,9 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
+        let depth_texture =
+            Texture::create_depth_texture(&device, &surface_config, "depth_texture");
+
         // let diffuse_bytes = include_bytes!("ocean.jpg");
         // let diffuse_texture = Texture::from_bytes(diffuse_bytes, &device, &queue, "tree").unwrap();
 
@@ -144,9 +171,9 @@ impl State {
             pitch: Deg(-20.0).into(),
             up: cgmath::Vector3::unit_y(),
             aspect: surface_config.width as f32 / surface_config.height as f32,
-            fovy: 45.0,
+            fovy: 70.0,
             znear: 0.1,
-            zfar: 100.0,
+            zfar: 1000.0, // Increase for higher render distance
         };
 
         let mut camera_uniform = CameraUniform::default();
@@ -224,7 +251,7 @@ impl State {
         });
 
         // Actual wave stuff
-        let (verticies, indicies) = generate_plane(64.0, 200);
+        let (verticies, indicies) = generate_plane(256.0, 200);
 
         let mut waves = [WaveData::default(); WAVE_NUMBER];
         for (i, w) in gather_wave_data(WAVE_NUMBER)
@@ -267,6 +294,127 @@ impl State {
             label: Some("wave_data_bind_group"),
         });
 
+        let skybox_texture = Texture::load_skybox_texture(
+            &device,
+            &queue,
+            [
+                include_bytes!("../images/bluecloud_rt.jpg"), // Should be +X
+                include_bytes!("../images/bluecloud_lf.jpg"), // Should be -X
+                include_bytes!("../images/bluecloud_up.jpg"), // Should be +Y
+                include_bytes!("../images/bluecloud_dn.jpg"), // Should be -Y
+                include_bytes!("../images/bluecloud_ft.jpg"), // Should be +Z
+                include_bytes!("../images/bluecloud_bk.jpg"), // Should be -Z
+            ],
+            "skybox_texture",
+        )?;
+
+        let skybox_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Skybox Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("skybox.wgsl").into()),
+        });
+
+        let skybox_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("skybox_texture_bind_group_layout"),
+            });
+
+        let skybox_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &skybox_texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&skybox_texture.sampler),
+                },
+            ],
+            label: Some("skybox_bind_group"),
+        });
+
+        let skybox_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Skybox Render Pipeline Layout"),
+                bind_group_layouts: &[&camera_bind_group_layout, &skybox_texture_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let skybox_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Skybox VB"),
+            contents: bytemuck::cast_slice(SKYBOX_VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let skybox_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Skybox IB"),
+            contents: bytemuck::cast_slice(SKYBOX_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let num_skybox_indices = SKYBOX_INDICES.len() as u32;
+
+        let skybox_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Skybox Render Pipeline"),
+                layout: Some(&skybox_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &skybox_shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: 3 * 4,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x3],
+                    }],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &skybox_shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Cw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: Texture::DEPTH_FORMAT,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multiview: None,
+                multisample: wgpu::MultisampleState::default(),
+                cache: None,
+            });
+
         // Boring stuff...
 
         let render_pipeline_layout =
@@ -300,7 +448,13 @@ impl State {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -352,20 +506,30 @@ impl State {
             camera_buffer,
             camera_bind_group,
             camera_controller,
+            depth_texture,
+            skybox_vertex_buffer,
+            _skybox_texture: skybox_texture,
+            skybox_index_buffer,
+            skybox_render_pipeline,
+            num_skybox_indices,
+            skybox_bind_group,
             time_uniform,
             time_buffer,
             time_bind_group,
-            wave_data_buffer,
+            _wave_data_buffer: wave_data_buffer,
             wave_data_bind_group,
-            wave_data_uniform,
+            _wave_data_uniform: wave_data_uniform,
         })
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
+            self.camera.aspect = width as f32 / height as f32;
             self.surface_config.width = width;
             self.surface_config.height = height;
             self.surface.configure(&self.device, &self.surface_config);
+            self.depth_texture =
+                Texture::create_depth_texture(&self.device, &self.surface_config, "depth_texture");
             self.is_surface_configured = true;
         }
     }
@@ -416,7 +580,7 @@ impl State {
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
+                label: Some("Combined Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -431,13 +595,31 @@ impl State {
                     },
                     depth_slice: None,
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0), // Clear depth to the farthest value
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
 
+            // --- 1. Draw Skybox First ---
+            render_pass.set_pipeline(&self.skybox_render_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.skybox_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.skybox_vertex_buffer.slice(..));
+            render_pass.set_index_buffer(
+                self.skybox_index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            render_pass.draw_indexed(0..self.num_skybox_indices, 0, 0..1);
+
+            // --- 2. Draw Ocean Second ---
             render_pass.set_pipeline(&self.render_pipeline);
-            // render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.time_bind_group, &[]);
             render_pass.set_bind_group(2, &self.wave_data_bind_group, &[]);

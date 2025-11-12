@@ -57,6 +57,7 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
+
     var height = 0.0;
     var dh_dx = 0.0;
     var dh_dz = 0.0;
@@ -85,19 +86,13 @@ fn vs_main(
     let position = vec3<f32>(model.position.x, height, model.position.z);
 
     // Not normalized vector
-    let normal = vec3<f32>(-dh_dx, 1.0, -dh_dz);
+    let normal = vec3<f32>(-dh_dx * 0.35, 1.0, -dh_dz * 0.35);
 
     out.normal = normalize(normal);
     out.tex_coords = model.tex_coords;
     out.clip_position = camera.view_proj * vec4<f32>(position, 1.0);
     return out;
 }
-
-// I removed textures to play with lighting
-// @group(0) @binding(0)
-// var t_diffuse: texture_2d<f32>;
-// @group(0) @binding(1)
-// var s_diffuse: sampler;
 
 // Time to make Blinn-Phong lighting!!!
 @fragment
@@ -110,7 +105,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // diffuse lighting, dependant on the normal & the light source.
     let light_source_color = vec3<f32>(1.0, 0.95, 0.85);
     let light_source_pos = normalize(vec3<f32>(-0.3, 0.8, 0.6));
-    let diffuse_strength = max(dot(light_source_pos, in.normal), 0.0);
+    let diffuse_strength = clamp(dot(light_source_pos, in.normal), 0.0, 1.0);
     let diffuse = diffuse_strength * light_source_color;
 
     // specular lighting, needs normal, ligth source, view direction

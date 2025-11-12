@@ -32,7 +32,7 @@ impl ApplicationHandler<State> for App {
         let version = env!("CARGO_PKG_VERSION");
         let window_attributes = Window::default_attributes()
             .with_title(format!("Ocean Simulation, build {version}"))
-            .with_inner_size(LogicalSize::new(1920, 1080));
+            .with_inner_size(LogicalSize::new(2560, 1440));
         // Doesnt matter since on hyprland it
         // opens full screen anyway
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
