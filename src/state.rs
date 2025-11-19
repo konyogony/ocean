@@ -54,6 +54,13 @@ pub struct State {
     camera_bind_group: wgpu::BindGroup,
     camera_controller: CameraController,
 
+    swash_cache: glyphon::SwashCache,
+    viewport: glyphon::Viewport,
+    font_system: glyphon::FontSystem,
+    text_atlast: glyphon::TextAtlas,
+    text_renderer: glyphon::TextRenderer,
+    text_buffer: glyphon::Buffer,
+
     depth_texture: Texture,
     _skybox_texture: Texture,
     skybox_render_pipeline: wgpu::RenderPipeline,
@@ -68,6 +75,8 @@ pub struct State {
     _wave_data_uniform: WaveDataUniform,
     _wave_data_buffer: wgpu::Buffer,
     wave_data_bind_group: wgpu::BindGroup,
+
+    // For some apparent reason I read that this HAS to be at the bottom
     pub window: Arc<Window>,
 }
 
@@ -211,7 +220,7 @@ impl State {
         });
 
         // Speed, Sensitivity, Speed boost (cntrl)
-        let camera_controller = CameraController::new(0.002, 0.002, 5.0);
+        let camera_controller = CameraController::new(0.02, 0.002, 5.0);
 
         // Or use include_wgsl! next time
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -252,7 +261,7 @@ impl State {
         });
 
         // Actual wave stuff
-        let (verticies, indicies) = generate_plane(256.0, 200);
+        let (verticies, indicies) = generate_plane(256.0, 1024);
 
         let mut waves = [WaveData::default(); WAVE_NUMBER];
         for (i, w) in gather_wave_data(WAVE_NUMBER)
@@ -299,12 +308,12 @@ impl State {
             &device,
             &queue,
             [
-                include_bytes!("../images/posx.jpg"), // Should be +X
-                include_bytes!("../images/negx.jpg"), // Should be -X
-                include_bytes!("../images/posy.jpg"), // Should be +Y
-                include_bytes!("../images/negy.jpg"), // Should be -Y
-                include_bytes!("../images/posz.jpg"), // Should be +Z
-                include_bytes!("../images/negz.jpg"), // Should be -Z
+                include_bytes!("../images/px1.png"), // Should be +X
+                include_bytes!("../images/nx1.png"), // Should be -X
+                include_bytes!("../images/py1.png"), // Should be +Y
+                include_bytes!("../images/ny1.png"), // Should be -Y
+                include_bytes!("../images/pz1.png"), // Should be +Z
+                include_bytes!("../images/nz1.png"), // Should be -Z
             ],
             "skybox_texture",
         )?;
@@ -489,6 +498,30 @@ impl State {
             usage: wgpu::BufferUsages::INDEX,
         });
 
+        let mut font_system = glyphon::FontSystem::new();
+        let swash_cache = glyphon::SwashCache::new();
+        let cache = glyphon::Cache::new(&device);
+        let viewport = glyphon::Viewport::new(&device, &cache);
+        let mut atlas =
+            glyphon::TextAtlas::new(&device, &queue, &cache, wgpu::TextureFormat::Bgra8UnormSrgb);
+        let text_render =
+            glyphon::TextRenderer::new(&atlas, &device, wgpu::MultisampleState::default(), None);
+        let mut text_buffer =
+            glyphon::Buffer::new(&mut font_system, glyphon::Metrics::new(30.0, 42.0));
+
+        text_buffer.set_size(
+            &mut font_system,
+            Some(surface_config.width),
+            Some(surface_config.height),
+        );
+        text_buffer.set_text(
+            &mut font_system,
+            "Hello Worlddddd",
+            &glyphon::Attrs::new().family(&glyphon::Family::SansSerif),
+            glyphon::Shaping::Advanced,
+        );
+        text_buffer.shape_until_scroll(&mut font_system, false);
+
         Ok(Self {
             window,
             device,
@@ -515,6 +548,12 @@ impl State {
             num_skybox_indices,
             skybox_bind_group,
             time_uniform,
+            swash_cache,
+            viewport,
+            text_buffer,
+            text_atlast,
+            text_renderer,
+            font_system,
             time_buffer,
             time_bind_group,
             _wave_data_buffer: wave_data_buffer,
@@ -608,7 +647,7 @@ impl State {
                 occlusion_query_set: None,
             });
 
-            // --- 1. Draw Skybox First ---
+            // Skybox first
             render_pass.set_pipeline(&self.skybox_render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.skybox_bind_group, &[]);
@@ -619,7 +658,7 @@ impl State {
             );
             render_pass.draw_indexed(0..self.num_skybox_indices, 0, 0..1);
 
-            // --- 2. Draw Ocean Second ---
+            // Ocean second
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.time_bind_group, &[]);
@@ -627,10 +666,39 @@ impl State {
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+
+            // Text last
+            self.text_renderer.prepare_with_custom(
+                &self.device,
+                &self.queue,
+                &mut self.font_system,
+                &self.text_atlast,
+                &self.viewport,
+                [glyphon::TextArea {
+                    buffer: &self.text_buffer,
+                    left: 30.0,
+                    top: 10.0,
+                    scale: 1.0,
+                    bounds: glyphon::TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: 650,
+                        bottom: 180,
+                    },
+                    default_color: glyphon::Color::rgb(255, 255, 255),
+                    custom_glyphs: None,
+                }],
+                &self.swash_cache,
+                None,
+            );
+            self.text_renderer
+                .render(&self.text_atlast, &self.viewport, &mut render_pass)
+                .unwrap();
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
+        self.text_atlast.trim();
 
         Ok(())
     }

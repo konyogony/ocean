@@ -87,7 +87,7 @@ fn vs_main(
     let position = vec3<f32>(model.position.x, height, model.position.z);
 
     // Not normalized vector
-    let normal = vec3<f32>(-dh_dx * 0.35, 1.0, -dh_dz * 0.35);
+    let normal = vec3<f32>(-dh_dx, 1.0, -dh_dz);
 
     out.normal = normalize(normal);
     out.tex_coords = model.tex_coords;
@@ -118,7 +118,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Phong = Ambient + Diffuse + Specular
     // For taking pictures, make separate screenshots with ambient, diffuse & specular turned down to 0
-    let lighting = ambient * 0.5 + diffuse * 0.5 + specular * 0.5;
+    let lighting = ambient * 0.3 + diffuse * 0.7 + specular * 0.5;
     let final_color = base_color * lighting;
 
     return vec4<f32>(final_color, 1.0);
