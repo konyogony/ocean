@@ -1,4 +1,4 @@
-use cgmath::{Deg, InnerSpace, Rad, SquareMatrix};
+use cgmath::{perspective, Deg, InnerSpace, Matrix4, Point3, Rad, SquareMatrix, Vector3};
 use winit::event::{DeviceEvent, ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
@@ -12,39 +12,37 @@ pub struct Camera {
     pub fovy: f32,
     pub znear: f32,
     pub zfar: f32,
+    pub flip_y: bool,
 }
 
 impl Camera {
     // Some more linear algebra magick since opengl and wgpu suck
-    pub fn build_wgpu_projection_matrix_rh(&self) -> cgmath::Matrix4<f32> {
-        let f = 1.0 / (self.fovy / 2.0).tan();
-        cgmath::Matrix4::from_cols(
-            cgmath::Vector4::new(f / self.aspect, 0.0, 0.0, 0.0),
-            cgmath::Vector4::new(0.0, f, 0.0, 0.0),
-            cgmath::Vector4::new(0.0, 0.0, self.zfar / (self.znear - self.zfar), -1.0),
-            cgmath::Vector4::new(
-                0.0,
-                0.0,
-                (self.zfar * self.znear) / (self.znear - self.zfar),
-                0.0,
-            ),
-        )
+    // Okay I am SO lost in whats going on here, but now my view works PERFECTLY
+    pub fn build_wgpu_projection_matrix_rh(&self) -> Matrix4<f32> {
+        let mut proj = perspective(Deg(self.fovy), self.aspect, self.znear, self.zfar);
+        if self.flip_y {
+            proj.y.y = -proj.y.y;
+        }
+        proj
     }
 
-    pub fn build_view_projection_matrix(&mut self) -> cgmath::Matrix4<f32> {
-        // Linear algebra magick
+    pub fn build_view_projection_matrix(&mut self) -> Matrix4<f32> {
         let (sin_pitch, cos_pitch) = self.pitch.0.sin_cos();
         let (sin_yaw, cos_yaw) = self.yaw.0.sin_cos();
 
-        // We already calculated the direction we are looking here, just have to add it to rest of
-        // the struct. Used for blinn phong model
         self.forward =
-            cgmath::Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize();
+            Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize();
 
         let target = self.eye + self.forward;
 
-        let view = cgmath::Matrix4::look_at_rh(self.eye, target, self.up);
-        // Didnt know you could do this :/
+        let view = Matrix4::look_at_rh(self.eye, target, self.up);
+        let proj = self.build_wgpu_projection_matrix_rh();
+        proj * view
+    }
+
+    pub fn build_skybox_view_projection_matrix(&self) -> Matrix4<f32> {
+        let target = Point3::new(0.0, 0.0, 0.0) + self.forward;
+        let view = Matrix4::look_at_rh(Point3::new(0.0, 0.0, 0.0), target, self.up);
         let proj = self.build_wgpu_projection_matrix_rh();
         proj * view
     }
@@ -54,6 +52,7 @@ impl Camera {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraUniform {
     pub view_proj: [[f32; 4]; 4],
+    pub view_proj_sky: [[f32; 4]; 4],
     pub view_dir: [f32; 3],
     pub _padding: u32,
 }
@@ -68,6 +67,7 @@ impl CameraUniform {
     pub fn new() -> Self {
         Self {
             view_proj: cgmath::Matrix4::identity().into(),
+            view_proj_sky: cgmath::Matrix4::identity().into(),
             view_dir: [0.0; 3],
             _padding: 0,
         }
@@ -75,6 +75,7 @@ impl CameraUniform {
 
     pub fn update_view_proj(&mut self, camera: &mut Camera) {
         self.view_proj = camera.build_view_projection_matrix().into();
+        self.view_proj_sky = camera.build_skybox_view_projection_matrix().into();
         self.view_dir = camera.forward.into();
     }
 }

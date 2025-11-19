@@ -22,6 +22,7 @@ var<uniform> wave_data: WaveDataUniform;
 
 struct CameraUniform {
     view_proj: mat4x4<f32>,
+    view_proj_sky: mat4x4<f32>,
     view_dir: vec3<f32>,
 };
 

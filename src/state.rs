@@ -171,9 +171,10 @@ impl State {
             pitch: Deg(-20.0).into(),
             up: cgmath::Vector3::unit_y(),
             aspect: surface_config.width as f32 / surface_config.height as f32,
-            fovy: 70.0,
+            fovy: 60.0,
             znear: 0.1,
             zfar: 1000.0, // Increase for higher render distance
+            flip_y: false,
         };
 
         let mut camera_uniform = CameraUniform::default();
@@ -298,12 +299,12 @@ impl State {
             &device,
             &queue,
             [
-                include_bytes!("../images/bluecloud_rt.jpg"), // Should be +X
-                include_bytes!("../images/bluecloud_lf.jpg"), // Should be -X
-                include_bytes!("../images/bluecloud_up.jpg"), // Should be +Y
-                include_bytes!("../images/bluecloud_dn.jpg"), // Should be -Y
-                include_bytes!("../images/bluecloud_ft.jpg"), // Should be +Z
-                include_bytes!("../images/bluecloud_bk.jpg"), // Should be -Z
+                include_bytes!("../images/posx.jpg"), // Should be +X
+                include_bytes!("../images/negx.jpg"), // Should be -X
+                include_bytes!("../images/posy.jpg"), // Should be +Y
+                include_bytes!("../images/negy.jpg"), // Should be -Y
+                include_bytes!("../images/posz.jpg"), // Should be +Z
+                include_bytes!("../images/negz.jpg"), // Should be -Z
             ],
             "skybox_texture",
         )?;
