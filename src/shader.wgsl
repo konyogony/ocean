@@ -105,7 +105,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // diffuse lighting, dependant on the normal & the light source.
     let light_source_color = vec3<f32>(1.0, 0.95, 0.85);
-    let light_source_pos = normalize(vec3<f32>(-0.3, 0.8, 0.6));
+    let light_source_pos = normalize(vec3<f32>(-1.0, 0.7, -1.0));
     let diffuse_strength = clamp(dot(light_source_pos, in.normal), 0.0, 1.0);
     let diffuse = diffuse_strength * light_source_color;
 

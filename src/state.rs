@@ -6,6 +6,8 @@ use cgmath::{Deg, Zero};
 use ocean::{generate_plane, Vertex};
 use std::sync::Arc;
 use wgpu::{util::DeviceExt, Color};
+use wgpu_text::glyph_brush::ab_glyph::FontArc;
+use wgpu_text::glyph_brush::{BuiltInLineBreaker, HorizontalAlign, VerticalAlign};
 use winit::window::Window;
 
 pub const WAVE_NUMBER: usize = 64;
@@ -54,12 +56,7 @@ pub struct State {
     camera_bind_group: wgpu::BindGroup,
     camera_controller: CameraController,
 
-    swash_cache: glyphon::SwashCache,
-    viewport: glyphon::Viewport,
-    font_system: glyphon::FontSystem,
-    text_atlast: glyphon::TextAtlas,
-    text_renderer: glyphon::TextRenderer,
-    text_buffer: glyphon::Buffer,
+    text_brush: wgpu_text::TextBrush,
 
     depth_texture: Texture,
     _skybox_texture: Texture,
@@ -498,29 +495,49 @@ impl State {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let mut font_system = glyphon::FontSystem::new();
-        let swash_cache = glyphon::SwashCache::new();
-        let cache = glyphon::Cache::new(&device);
-        let viewport = glyphon::Viewport::new(&device, &cache);
-        let mut atlas =
-            glyphon::TextAtlas::new(&device, &queue, &cache, wgpu::TextureFormat::Bgra8UnormSrgb);
-        let text_render =
-            glyphon::TextRenderer::new(&atlas, &device, wgpu::MultisampleState::default(), None);
-        let mut text_buffer =
-            glyphon::Buffer::new(&mut font_system, glyphon::Metrics::new(30.0, 42.0));
+        // Other library for text
+        // let mut font_system = glyphon::FontSystem::new();
+        // let swash_cache = glyphon::SwashCache::new();
+        // let cache = glyphon::Cache::new(&device);
+        // let viewport = glyphon::Viewport::new(&device, &cache);
+        // let mut atlas =
+        //     glyphon::TextAtlas::new(&device, &queue, &cache, wgpu::TextureFormat::Bgra8UnormSrgb);
+        // let text_render =
+        //     glyphon::TextRenderer::new(&atlas, &device, wgpu::MultisampleState::default(), None);
+        // let mut text_buffer =
+        //     glyphon::Buffer::new(&mut font_system, glyphon::Metrics::new(30.0, 42.0));
 
-        text_buffer.set_size(
-            &mut font_system,
-            Some(surface_config.width),
-            Some(surface_config.height),
-        );
-        text_buffer.set_text(
-            &mut font_system,
-            "Hello Worlddddd",
-            &glyphon::Attrs::new().family(&glyphon::Family::SansSerif),
-            glyphon::Shaping::Advanced,
-        );
-        text_buffer.shape_until_scroll(&mut font_system, false);
+        // text_buffer.set_size(
+        //     &mut font_system,
+        //     Some(surface_config.width),
+        //     Some(surface_config.height),
+        // );
+        // text_buffer.set_text(
+        //     &mut font_system,
+        //     "Hello Worlddddd",
+        //     &glyphon::Attrs::new().family(&glyphon::Family::SansSerif),
+        //     glyphon::Shaping::Advanced,
+        // );
+        // text_buffer.shape_until_scroll(&mut font_system, false);
+
+        let depth_stencil = Some(wgpu::DepthStencilState {
+            format: Texture::DEPTH_FORMAT,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::Always,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        });
+
+        let font_bytes = include_bytes!("./JetBrainsMono.ttf");
+        let font = FontArc::try_from_slice(font_bytes).unwrap();
+        let text_brush = wgpu_text::BrushBuilder::using_font(font)
+            .with_depth_stencil(depth_stencil)
+            .build(
+                &device,
+                surface_config.width,
+                surface_config.height,
+                surface_config.format,
+            );
 
         Ok(Self {
             window,
@@ -548,12 +565,7 @@ impl State {
             num_skybox_indices,
             skybox_bind_group,
             time_uniform,
-            swash_cache,
-            viewport,
-            text_buffer,
-            text_atlast,
-            text_renderer,
-            font_system,
+            text_brush,
             time_buffer,
             time_bind_group,
             _wave_data_buffer: wave_data_buffer,
@@ -571,6 +583,8 @@ impl State {
             self.depth_texture =
                 Texture::create_depth_texture(&self.device, &self.surface_config, "depth_texture");
             self.is_surface_configured = true;
+            self.text_brush
+                .resize_view(width as f32, height as f32, &self.queue);
         }
     }
 
@@ -617,6 +631,32 @@ impl State {
                 .create_command_encoder(&wgpu::wgt::CommandEncoderDescriptor {
                     label: Some("Render Encoder"),
                 });
+
+        let pos = format!(
+            "x: {}, y: {}, z: {}",
+            &self.camera.eye.x.floor(),
+            &self.camera.eye.y.floor(),
+            &self.camera.eye.z.floor()
+        );
+
+        let section = wgpu_text::glyph_brush::Section::default()
+            .add_text(
+                wgpu_text::glyph_brush::Text::new(pos.as_str())
+                    .with_scale(30.0)
+                    .with_color([1.0, 1.0, 1.0, 1.0]),
+            )
+            .with_bounds((650.0, 180.0))
+            .with_layout(
+                wgpu_text::glyph_brush::Layout::default_wrap()
+                    .h_align(HorizontalAlign::Left)
+                    .v_align(VerticalAlign::Top)
+                    .line_breaker(BuiltInLineBreaker::UnicodeLineBreaker),
+            )
+            .with_screen_position((30.0, 10.0));
+
+        self.text_brush
+            .queue(&self.device, &self.queue, [&section])
+            .unwrap();
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -668,37 +708,38 @@ impl State {
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
 
             // Text last
-            self.text_renderer.prepare_with_custom(
-                &self.device,
-                &self.queue,
-                &mut self.font_system,
-                &self.text_atlast,
-                &self.viewport,
-                [glyphon::TextArea {
-                    buffer: &self.text_buffer,
-                    left: 30.0,
-                    top: 10.0,
-                    scale: 1.0,
-                    bounds: glyphon::TextBounds {
-                        left: 0,
-                        top: 0,
-                        right: 650,
-                        bottom: 180,
-                    },
-                    default_color: glyphon::Color::rgb(255, 255, 255),
-                    custom_glyphs: None,
-                }],
-                &self.swash_cache,
-                None,
-            );
-            self.text_renderer
-                .render(&self.text_atlast, &self.viewport, &mut render_pass)
-                .unwrap();
+            self.text_brush.draw(&mut render_pass);
+            // self.text_renderer.prepare_with_custom(
+            //     &self.device,
+            //     &self.queue,
+            //     &mut self.font_system,
+            //     &self.text_atlast,
+            //     &self.viewport,
+            //     [glyphon::TextArea {
+            //         buffer: &self.text_buffer,
+            //         left: 30.0,
+            //         top: 10.0,
+            //         scale: 1.0,
+            //         bounds: glyphon::TextBounds {
+            //             left: 0,
+            //             top: 0,
+            //             right: 650,
+            //             bottom: 180,
+            //         },
+            //         default_color: glyphon::Color::rgb(255, 255, 255),
+            //         custom_glyphs: None,
+            //     }],
+            //     &self.swash_cache,
+            //     None,
+            // );
+            // self.text_renderer
+            //     .render(&self.text_atlast, &self.viewport, &mut render_pass)
+            //     .unwrap();
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        self.text_atlast.trim();
+        // self.text_atlast.trim();
 
         Ok(())
     }
