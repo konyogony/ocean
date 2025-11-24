@@ -53,7 +53,7 @@ impl Camera {
 pub struct CameraUniform {
     pub view_proj: [[f32; 4]; 4],
     pub view_proj_sky: [[f32; 4]; 4],
-    pub view_dir: [f32; 3],
+    pub camera_pos: [f32; 3],
     pub _padding: u32,
 }
 
@@ -68,7 +68,7 @@ impl CameraUniform {
         Self {
             view_proj: cgmath::Matrix4::identity().into(),
             view_proj_sky: cgmath::Matrix4::identity().into(),
-            view_dir: [0.0; 3],
+            camera_pos: [0.0; 3],
             _padding: 0,
         }
     }
@@ -76,7 +76,7 @@ impl CameraUniform {
     pub fn update_view_proj(&mut self, camera: &mut Camera) {
         self.view_proj = camera.build_view_projection_matrix().into();
         self.view_proj_sky = camera.build_skybox_view_projection_matrix().into();
-        self.view_dir = camera.forward.into();
+        self.camera_pos = camera.eye.into();
     }
 }
 

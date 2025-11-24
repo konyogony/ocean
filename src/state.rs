@@ -10,7 +10,7 @@ use wgpu_text::glyph_brush::ab_glyph::FontArc;
 use wgpu_text::glyph_brush::{BuiltInLineBreaker, HorizontalAlign, VerticalAlign};
 use winit::window::Window;
 
-pub const WAVE_NUMBER: usize = 64;
+pub const WAVE_NUMBER: usize = 16;
 
 const SKYBOX_VERTICES: &[f32] = &[
     -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, -1.0, 1.0, -1.0,
