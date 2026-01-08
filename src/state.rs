@@ -495,31 +495,6 @@ impl State {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        // Other library for text
-        // let mut font_system = glyphon::FontSystem::new();
-        // let swash_cache = glyphon::SwashCache::new();
-        // let cache = glyphon::Cache::new(&device);
-        // let viewport = glyphon::Viewport::new(&device, &cache);
-        // let mut atlas =
-        //     glyphon::TextAtlas::new(&device, &queue, &cache, wgpu::TextureFormat::Bgra8UnormSrgb);
-        // let text_render =
-        //     glyphon::TextRenderer::new(&atlas, &device, wgpu::MultisampleState::default(), None);
-        // let mut text_buffer =
-        //     glyphon::Buffer::new(&mut font_system, glyphon::Metrics::new(30.0, 42.0));
-
-        // text_buffer.set_size(
-        //     &mut font_system,
-        //     Some(surface_config.width),
-        //     Some(surface_config.height),
-        // );
-        // text_buffer.set_text(
-        //     &mut font_system,
-        //     "Hello Worlddddd",
-        //     &glyphon::Attrs::new().family(&glyphon::Family::SansSerif),
-        //     glyphon::Shaping::Advanced,
-        // );
-        // text_buffer.shape_until_scroll(&mut font_system, false);
-
         let depth_stencil = Some(wgpu::DepthStencilState {
             format: Texture::DEPTH_FORMAT,
             depth_write_enabled: false,
@@ -709,32 +684,6 @@ impl State {
 
             // Text last
             self.text_brush.draw(&mut render_pass);
-            // self.text_renderer.prepare_with_custom(
-            //     &self.device,
-            //     &self.queue,
-            //     &mut self.font_system,
-            //     &self.text_atlast,
-            //     &self.viewport,
-            //     [glyphon::TextArea {
-            //         buffer: &self.text_buffer,
-            //         left: 30.0,
-            //         top: 10.0,
-            //         scale: 1.0,
-            //         bounds: glyphon::TextBounds {
-            //             left: 0,
-            //             top: 0,
-            //             right: 650,
-            //             bottom: 180,
-            //         },
-            //         default_color: glyphon::Color::rgb(255, 255, 255),
-            //         custom_glyphs: None,
-            //     }],
-            //     &self.swash_cache,
-            //     None,
-            // );
-            // self.text_renderer
-            //     .render(&self.text_atlast, &self.viewport, &mut render_pass)
-            //     .unwrap();
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

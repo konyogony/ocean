@@ -123,8 +123,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Phong = Ambient + Diffuse + Specular
     // For taking pictures, make separate screenshots with ambient, diffuse & specular turned down to 0
-    let lighting = ambient * 0.3 + diffuse * 0.7 + specular * 0.5;
-    let final_color = base_color * lighting;
+    let final_color = (base_color * (ambient * 0.3 + diffuse * 0.7)) + (specular * 0.5);
 
     return vec4<f32>(final_color, 1.0);
 }
