@@ -1,22 +1,19 @@
 // just some random constants
 
 const g: f32 = 9.81;
-const WAVE_COUNT: u32 = 16u;
+const MESH_SIZE: f32 = 1024.0;
+const MESH_SUBDIVISIONS: u32 = 2048u;
 
-// Wave data
+// Initial frequency domain
 
-struct WaveData {
-    wave_vector: vec2<f32>,
-    amplitude: f32,
-    phase_shift: f32,
-};
-
-struct WaveDataUniform {
-    waves: array<WaveData, WAVE_COUNT>,
+struct InitialData {
+    initial_frequency_domain: vec2<f32>,
+    k_vec: vec2<f32>,
+    angular_frequency: f32,
 }
 
 @group(2) @binding(0)
-var<uniform> wave_data: WaveDataUniform;
+var<storage, read_write> initial_data: array<InitialData>;
 
 // Camera
 
@@ -59,35 +56,10 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    var height = 0.0;
-    var dh_dx = 0.0;
-    var dh_dz = 0.0;
-
-    for (var i = 0u; i < WAVE_COUNT; i = i + 1u) {
-        // Use the wave index to access the right wave data
-        let data = wave_data.waves[i];
-
-        // This is for displacing the vertex
-        let wave_number = length(data.wave_vector);
-        let angular_freq = sqrt(g * wave_number);
-        // Fixed dot product (before it mightve been using 0 y-value)
-        let dot_product = dot(data.wave_vector, model.position.xz);
-
-        // Convert to dot() function
-        let arg = dot_product - angular_freq * time.time_uniform + data.phase_shift;
-        height += data.amplitude * sin(arg);
-
-        // This is for calculating the normal
-        // Get partial derivative of height with respect to x and y.
-        // Check screenshot "partial_dx_dy.png"
-        dh_dx += data.wave_vector.x * data.amplitude * cos(arg);
-        dh_dz += data.wave_vector.y * data.amplitude * cos(arg); // Y is the Z component
-    }
-
-    let position = vec3<f32>(model.position.x, height, model.position.z);
+    let position = vec3<f32>(model.position.x, 1.0, model.position.z);
 
     // Not normalized vector
-    let normal = vec3<f32>(-dh_dx, 1.0, -dh_dz);
+    let normal = vec3<f32>(0.0, 1.0, 0.0);
 
     out.normal = normalize(normal);
     out.tex_coords = model.tex_coords;
@@ -125,4 +97,29 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // For taking pictures, make separate screenshots with ambient, diffuse & specular turned down to 0
     let final_color = (base_color * (ambient * 0.3 + diffuse * 0.7)) + (specular * 0.5);
     return vec4<f32>(final_color, 1.0);
+}
+
+@compute @workgroup_size(8,8)
+fn cmp_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    // Get the index... somehow?
+    let index = id.y * MESH_SUBDIVISIONS + id.x;
+
+    // First we have to evolve the spectrum in time.
+    let h_0 = initial_data[index].initial_frequency_domain;
+    // Compute the complex conjugate, which is a-ib
+    let h_0_star = vec2<f32>(h_0.x, -h_0.y);
+    let w_i = initial_data[index].angular_frequency;
+    let wt = w_i * time.time_uniform;
+    // We have to use eulers formula for complex numbers,
+    // e^{iwt} = cos(wt) + i*sin(wt) = vec2(cos(wt),sin(wt))
+    let exponent = vec2<f32>(cos(wt), sin(wt));
+
+    let h_tilda = h_0 * exponent + h_0_star * -exponent;
+
+    let k = initial_data[index].k_vec;
+    let D_unrotated = normalize(k) * h_tilda;
+    // Multiplying by neg i results in rotation -90 deg
+    let D_tilda = vec2<f32>(D_unrotated.y, -D_unrotated.x);
+
+    // Then IFFT
 }

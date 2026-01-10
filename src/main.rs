@@ -20,7 +20,6 @@ pub mod skybox;
 pub mod state;
 pub mod texture;
 pub mod vertex;
-pub mod wave;
 
 pub struct App {
     state: Option<State>,

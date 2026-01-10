@@ -1,8 +1,8 @@
 use crate::camera::{Camera, CameraController, CameraUniform};
 use crate::skybox::Skybox;
 use crate::texture::Texture;
+use crate::vertex::InitialData;
 use crate::vertex::Vertex;
-use crate::wave::{gather_wave_data, WaveData, WaveDataUniform};
 use crate::{DESC, VERSION};
 use anyhow::Result;
 use cgmath::{Deg, Zero};
@@ -66,7 +66,9 @@ pub struct State {
     fps_timer: f32,
 
     time_bind_group: wgpu::BindGroup,
-    wave_data_bind_group: wgpu::BindGroup,
+    initial_data_array: Vec<InitialData>,
+    initial_data_buffer: wgpu::Buffer,
+    initial_data_group: wgpu::BindGroup,
 
     // For some apparent reason I read that this HAS to be at the bottom (not fact checked)
     pub window: Arc<Window>,
@@ -204,7 +206,7 @@ impl State {
                     },
                     count: None,
                 }],
-                label: Some("time_bind_group_layour"),
+                label: Some("time_bind_group_layout"),
             });
 
         let time_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -219,45 +221,36 @@ impl State {
         // Setting up the surface as well as creating initial waves for simple sum of sine waves
         let (verticies, indicies) = Vertex::generate_plane(&MESH_SIZE, MESH_SUBDIVISIONS);
 
-        let mut waves = [WaveData::default(); WAVE_NUMBER];
-        for (i, w) in gather_wave_data(WAVE_NUMBER)
-            .into_iter()
-            .enumerate()
-            .take(WAVE_NUMBER)
-        {
-            waves[i] = w;
-        }
+        let initial_data_array: Vec<InitialData> = InitialData::generate_data(MESH_SIZE);
 
-        let wave_data_uniform = WaveDataUniform { waves };
-
-        let wave_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Wave Data Buffer"),
-            contents: bytemuck::bytes_of(&wave_data_uniform),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        let initial_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Initial Data Buffer"),
+            contents: bytemuck::cast_slice(&initial_data_array),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
-        let wave_data_bind_group_layout =
+        let initial_data_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
                     count: None,
                 }],
-                label: Some("wave_data_bind_group_layour"),
+                label: Some("initial_data_group_layout"),
             });
 
-        let wave_data_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &wave_data_bind_group_layout,
+        let initial_data_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &initial_data_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wave_data_buffer.as_entire_binding(),
+                resource: initial_data_buffer.as_entire_binding(),
             }],
-            label: Some("wave_data_bind_group"),
+            label: Some("initial_data_group"),
         });
 
         // Creating the skybox
@@ -272,7 +265,7 @@ impl State {
                 bind_group_layouts: &[
                     &camera_bind_group_layout,
                     &time_bind_group_layout,
-                    &wave_data_bind_group_layout,
+                    &initial_data_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -297,7 +290,7 @@ impl State {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: Texture::DEPTH_FORMAT,
+                format: crate::texture::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
@@ -337,7 +330,7 @@ impl State {
         });
 
         let depth_stencil = Some(wgpu::DepthStencilState {
-            format: Texture::DEPTH_FORMAT,
+            format: crate::texture::DEPTH_FORMAT,
             depth_write_enabled: false,
             depth_compare: wgpu::CompareFunction::Always,
             stencil: wgpu::StencilState::default(),
@@ -383,7 +376,9 @@ impl State {
             text_brush,
             time_buffer,
             time_bind_group,
-            wave_data_bind_group,
+            initial_data_array,
+            initial_data_buffer,
+            initial_data_group,
         })
     }
 
@@ -600,7 +595,7 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.time_bind_group, &[]);
-            render_pass.set_bind_group(2, &self.wave_data_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.initial_data_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);

@@ -1,6 +1,6 @@
 [package]
 name = "ocean"
-description = "Simple Sum of Sine Waves"
+description = "Converting to a more realistic approach"
 version = "0.1.7"
 edition = "2021"
 
