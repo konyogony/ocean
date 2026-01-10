@@ -13,8 +13,10 @@ use winit::{
 };
 
 pub mod camera;
+pub mod skybox;
 pub mod state;
 pub mod texture;
+pub mod vertex;
 pub mod wave;
 
 pub struct App {

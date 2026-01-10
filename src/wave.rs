@@ -61,28 +61,6 @@ impl WaveData {
     }
 
     // Get the phillips spectrum value by a complicated equation
-    pub fn get_phillips_spectrum_value(wave_vector: [f32; 2]) -> f32 {
-        let k: Vector2<f32> = wave_vector.into();
-        let k2 = k.magnitude2();
-        if k2 == 0.0 {
-            return 0.0;
-        }
-
-        let k_hat = k.normalize();
-
-        let w = WIND_VECTOR;
-        let w_hat = WIND_VECTOR.normalize();
-
-        let align = cgmath::dot(k_hat, w_hat).max(0.0);
-        let align2 = align * align;
-
-        let l = w.magnitude2() / 9.81;
-        let l2 = l * l;
-        let k4 = k2 * k2;
-        let exp = f32::exp(-1.0 / (k2 * l2));
-
-        (align2 * AMPLITUDE * exp) / k4
-    }
 }
 
 // Learnt something new about rust generics...

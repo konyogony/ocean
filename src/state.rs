@@ -1,9 +1,10 @@
 use crate::camera::{Camera, CameraController, CameraUniform};
+use crate::skybox::Skybox;
 use crate::texture::Texture;
+use crate::vertex::Vertex;
 use crate::wave::{gather_wave_data, WaveData, WaveDataUniform};
 use anyhow::Result;
 use cgmath::{Deg, Zero};
-use ocean::{generate_plane, Vertex};
 use std::sync::Arc;
 use wgpu::{util::DeviceExt, Color};
 use wgpu_text::glyph_brush::ab_glyph::FontArc;
@@ -11,21 +12,6 @@ use wgpu_text::glyph_brush::{BuiltInLineBreaker, HorizontalAlign, VerticalAlign}
 use winit::window::Window;
 
 pub const WAVE_NUMBER: usize = 16;
-
-const SKYBOX_VERTICES: &[f32] = &[
-    -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, -1.0, 1.0, -1.0,
-    -1.0, 1.0, 1.0, -1.0, -1.0, 1.0, -1.0,
-];
-
-const SKYBOX_INDICES: &[u16] = &[
-    0, 1, 2, 2, 3, 0, // Front
-    1, 5, 6, 6, 2, 1, // Right
-    5, 4, 7, 7, 6, 5, // Back
-    4, 0, 3, 3, 7, 4, // Left
-    3, 2, 6, 6, 7, 3, // Top
-    4, 5, 1, 1, 0, 4, // Bottom
-];
-
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TimeUniform {
@@ -59,12 +45,8 @@ pub struct State {
     text_brush: wgpu_text::TextBrush,
 
     depth_texture: Texture,
-    _skybox_texture: Texture,
-    skybox_render_pipeline: wgpu::RenderPipeline,
-    skybox_bind_group: wgpu::BindGroup,
-    skybox_vertex_buffer: wgpu::Buffer,
-    skybox_index_buffer: wgpu::Buffer,
-    num_skybox_indices: u32,
+
+    skybox: Skybox,
 
     time_uniform: TimeUniform,
     time_buffer: wgpu::Buffer,
@@ -258,7 +240,7 @@ impl State {
         });
 
         // Actual wave stuff
-        let (verticies, indicies) = generate_plane(256.0, 1024);
+        let (verticies, indicies) = Vertex::generate_plane(256.0, 1024);
 
         let mut waves = [WaveData::default(); WAVE_NUMBER];
         for (i, w) in gather_wave_data(WAVE_NUMBER)
@@ -301,128 +283,9 @@ impl State {
             label: Some("wave_data_bind_group"),
         });
 
-        let skybox_texture = Texture::load_skybox_texture(
-            &device,
-            &queue,
-            [
-                include_bytes!("../images/px1.png"), // Should be +X
-                include_bytes!("../images/nx1.png"), // Should be -X
-                include_bytes!("../images/py1.png"), // Should be +Y
-                include_bytes!("../images/ny1.png"), // Should be -Y
-                include_bytes!("../images/pz1.png"), // Should be +Z
-                include_bytes!("../images/nz1.png"), // Should be -Z
-            ],
-            "skybox_texture",
-        )?;
-
-        let skybox_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Skybox Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("skybox.wgsl").into()),
-        });
-
-        let skybox_texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::Cube,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("skybox_texture_bind_group_layout"),
-            });
-
-        let skybox_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &skybox_texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&skybox_texture.sampler),
-                },
-            ],
-            label: Some("skybox_bind_group"),
-        });
-
-        let skybox_render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Skybox Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout, &skybox_texture_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        let skybox_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Skybox VB"),
-            contents: bytemuck::cast_slice(SKYBOX_VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let skybox_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Skybox IB"),
-            contents: bytemuck::cast_slice(SKYBOX_INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
-        let num_skybox_indices = SKYBOX_INDICES.len() as u32;
-
-        let skybox_render_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Skybox Render Pipeline"),
-                layout: Some(&skybox_render_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &skybox_shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    buffers: &[wgpu::VertexBufferLayout {
-                        array_stride: 3 * 4,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![0 => Float32x3],
-                    }],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &skybox_shader,
-                    entry_point: Some("fs_main"),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: surface_config.format,
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: wgpu::FrontFace::Cw,
-                    cull_mode: Some(wgpu::Face::Back),
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: Texture::DEPTH_FORMAT,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multiview: None,
-                multisample: wgpu::MultisampleState::default(),
-                cache: None,
-            });
-
         // Boring stuff...
+
+        let skybox = Skybox::new(&device, &queue, &surface_config, &camera_bind_group_layout)?;
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -503,7 +366,7 @@ impl State {
             bias: wgpu::DepthBiasState::default(),
         });
 
-        let font_bytes = include_bytes!("./JetBrainsMono.ttf");
+        let font_bytes = include_bytes!("../static/JetBrainsMono.ttf");
         let font = FontArc::try_from_slice(font_bytes).unwrap();
         let text_brush = wgpu_text::BrushBuilder::using_font(font)
             .with_depth_stencil(depth_stencil)
@@ -533,12 +396,7 @@ impl State {
             camera_bind_group,
             camera_controller,
             depth_texture,
-            skybox_vertex_buffer,
-            _skybox_texture: skybox_texture,
-            skybox_index_buffer,
-            skybox_render_pipeline,
-            num_skybox_indices,
-            skybox_bind_group,
+            skybox,
             time_uniform,
             text_brush,
             time_buffer,
@@ -663,15 +521,16 @@ impl State {
             });
 
             // Skybox first
-            render_pass.set_pipeline(&self.skybox_render_pipeline);
+            render_pass.set_pipeline(&self.skybox.skybox_render_pipeline);
+            // Camera in the middle?
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.skybox_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.skybox_vertex_buffer.slice(..));
+            render_pass.set_bind_group(1, &self.skybox.skybox_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.skybox.skybox_vertex_buffer.slice(..));
             render_pass.set_index_buffer(
-                self.skybox_index_buffer.slice(..),
+                self.skybox.skybox_index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            render_pass.draw_indexed(0..self.num_skybox_indices, 0, 0..1);
+            render_pass.draw_indexed(0..self.skybox.num_skybox_indices, 0, 0..1);
 
             // Ocean second
             render_pass.set_pipeline(&self.render_pipeline);
