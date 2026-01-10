@@ -12,6 +12,9 @@ use winit::{
     window::Window,
 };
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const DESC: &str = env!("CARGO_PKG_DESCRIPTION");
+
 pub mod camera;
 pub mod skybox;
 pub mod state;
@@ -31,9 +34,8 @@ impl App {
 
 impl ApplicationHandler<State> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let version = env!("CARGO_PKG_VERSION");
         let window_attributes = Window::default_attributes()
-            .with_title(format!("Ocean Simulation, build {version}"))
+            .with_title(format!("Ocean Simulation, build {VERSION}"))
             .with_inner_size(LogicalSize::new(2560, 1440));
         // Doesnt matter since on hyprland it
         // opens full screen anyway

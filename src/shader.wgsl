@@ -59,7 +59,6 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-
     var height = 0.0;
     var dh_dx = 0.0;
     var dh_dz = 0.0;
@@ -105,12 +104,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(in.normal);
 
     // ambient lighting, basically constant light source, provides basic shape details
-    let ambient = vec3<f32>(0.15, 0.18, 0.20);
+    let ambient = vec3<f32>(0.75, 0.85, 1.0) * 0.3;
 
     // diffuse lighting, dependant on the normal & the light source.
     let light_source_color = vec3<f32>(1.0, 0.95, 0.85);
     // direction TO the light source (however, sometimes may be more benefitial to consider the other way)
-    let light_source_dir = normalize(vec3<f32>(-1.0, 0.7, -1.0));
+    // Bearing 324.6deg, pitch +28.13deg, used chatgpt to get better direction vector
+    let light_source_dir = normalize(vec3<f32>(-0.511, 0.472, -0.718));
     let diffuse_strength = clamp(dot(light_source_dir, normal), 0.0, 1.0);
     let diffuse = diffuse_strength * light_source_color;
 
@@ -124,6 +124,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Phong = Ambient + Diffuse + Specular
     // For taking pictures, make separate screenshots with ambient, diffuse & specular turned down to 0
     let final_color = (base_color * (ambient * 0.3 + diffuse * 0.7)) + (specular * 0.5);
-
     return vec4<f32>(final_color, 1.0);
 }

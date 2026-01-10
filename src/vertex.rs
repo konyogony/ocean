@@ -1,15 +1,10 @@
-use std::f32;
-use std::f32;
+use cgmath::{InnerSpace, Vector2};
+use rand_distr::{Distribution, Normal};
 use std::f32;
 use std::mem;
 
-use cgmath::{InnerSpace, Vector2};
-use rand::Rng;
-
 const WIND_VECTOR: Vector2<f32> = Vector2::new(-2.1, 2.8); // Magnitude of 3.5
 const AMPLITUDE: f32 = 0.0000001;
-
-use rand_distr::{Distribution, Normal};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -18,6 +13,9 @@ pub struct Vertex {
     tex_coords: [f32; 2],
     index: u32,
     k_vec: [f32; 2],
+    xi_r: f32,
+    xi_i: f32,
+    phillips_spectrum_value: f32,
 }
 
 impl Vertex {
@@ -70,10 +68,12 @@ impl Vertex {
     }
 
     // UPD: I understood what is happening
-    pub fn generate_plane(size: f32, subdivisions: u32) -> (Vec<Vertex>, Vec<u32>) {
+    pub fn generate_plane(size: &f32, subdivisions: u32) -> (Vec<Vertex>, Vec<u32>) {
         // Create empty vectors
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
+
+        let normal = Normal::new(0.0, 1.0).unwrap();
 
         // Get the step and length of half the size
         let step = size / subdivisions as f32;
@@ -91,6 +91,10 @@ impl Vertex {
                     (2.0 * f32::consts::PI * col as f32) / size,
                 ];
 
+                // Random values from the gaussian distribution
+                let xi_r = normal.sample(&mut rand::rng());
+                let xi_i = normal.sample(&mut rand::rng());
+
                 vertices.push(Vertex {
                     position: [x, 0.0, z],
                     tex_coords: [
@@ -99,6 +103,9 @@ impl Vertex {
                     ],
                     index: (row * (subdivisions + 1) + col),
                     k_vec,
+                    xi_r,
+                    xi_i,
+                    phillips_spectrum_value: Self::get_phillips_spectrum_value(k_vec),
                 });
             }
         }

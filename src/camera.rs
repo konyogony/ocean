@@ -2,6 +2,17 @@ use cgmath::{perspective, Deg, InnerSpace, Matrix4, Point3, Rad, SquareMatrix, V
 use winit::event::{DeviceEvent, ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
+const DIRS: [&str; 8] = [
+    "N  (-Z)",
+    "NE (+X, -Z)",
+    "E  (+X)",
+    "SE (+X, +Z)",
+    "S  (+Z)",
+    "SW (-X, +Z)",
+    "W  (-X)",
+    "NW (-X, -Z)",
+];
+
 pub struct Camera {
     pub forward: cgmath::Vector3<f32>,
     pub eye: cgmath::Point3<f32>,
@@ -13,6 +24,7 @@ pub struct Camera {
     pub znear: f32,
     pub zfar: f32,
     pub flip_y: bool,
+    pub bearing: Rad<f32>,
 }
 
 impl Camera {
@@ -46,6 +58,18 @@ impl Camera {
         let proj = self.build_wgpu_projection_matrix_rh();
         proj * view
     }
+
+    // More slightly confusing maths...
+    pub fn update_bearing(&mut self) {
+        let f = Vector3::new(self.forward.x, 0.0, -self.forward.z).normalize();
+        self.bearing = Rad(f32::atan2(f.x, f.z));
+    }
+
+    // Smart.
+    pub fn bearing_to_compass(bearing_deg: f32) -> &'static str {
+        let idx = ((bearing_deg + 22.5) / 45.0).floor() as usize % 8;
+        DIRS[idx]
+    }
 }
 
 #[repr(C)]
@@ -76,6 +100,7 @@ impl CameraUniform {
     pub fn update_view_proj(&mut self, camera: &mut Camera) {
         self.view_proj = camera.build_view_projection_matrix().into();
         self.view_proj_sky = camera.build_skybox_view_projection_matrix().into();
+        camera.update_bearing();
         self.camera_pos = camera.eye.into();
     }
 }
@@ -177,7 +202,7 @@ impl CameraController {
                 self.mouse_dy += delta.1 as f32;
                 true
             }
-            // Needs fixing
+            // TODO: Needs fixing
             DeviceEvent::MouseWheel { delta } => {
                 if let MouseScrollDelta::LineDelta(_, y) = delta {
                     self.speed += y.signum() * 10.0;

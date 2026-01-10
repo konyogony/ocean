@@ -3,15 +3,19 @@ use crate::skybox::Skybox;
 use crate::texture::Texture;
 use crate::vertex::Vertex;
 use crate::wave::{gather_wave_data, WaveData, WaveDataUniform};
+use crate::{DESC, VERSION};
 use anyhow::Result;
 use cgmath::{Deg, Zero};
+use chrono::Local;
 use std::sync::Arc;
+use std::time::{Instant, SystemTime};
 use wgpu::{util::DeviceExt, Color};
 use wgpu_text::glyph_brush::ab_glyph::FontArc;
 use wgpu_text::glyph_brush::{BuiltInLineBreaker, HorizontalAlign, VerticalAlign};
 use winit::window::Window;
 
 pub const WAVE_NUMBER: usize = 16;
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TimeUniform {
@@ -30,6 +34,7 @@ pub struct State {
     queue: wgpu::Queue,
     surface_config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
+
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     num_indices: u32,
@@ -45,11 +50,17 @@ pub struct State {
     text_brush: wgpu_text::TextBrush,
 
     depth_texture: Texture,
-
     skybox: Skybox,
+    mesh_size: f32,
+    mesh_subdivisions: u32,
 
     time_uniform: TimeUniform,
     time_buffer: wgpu::Buffer,
+    last_frame_time_instant: Instant,
+    fps: f32,
+    frame_counter: u32,
+    fps_timer: f32,
+
     time_bind_group: wgpu::BindGroup,
     _wave_data_uniform: WaveDataUniform,
     _wave_data_buffer: wgpu::Buffer,
@@ -62,6 +73,7 @@ pub struct State {
 impl State {
     pub async fn new(window: Arc<Window>) -> Result<Self> {
         let size = window.inner_size();
+        let now = Instant::now();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: (wgpu::Backends::PRIMARY),
@@ -161,8 +173,9 @@ impl State {
             aspect: surface_config.width as f32 / surface_config.height as f32,
             fovy: 60.0,
             znear: 0.1,
-            zfar: 1000.0, // Increase for higher render distance
+            zfar: 1500.0, // Increase for higher render distance
             flip_y: false,
+            bearing: Deg(0.0).into(),
         };
 
         let mut camera_uniform = CameraUniform::default();
@@ -240,7 +253,9 @@ impl State {
         });
 
         // Actual wave stuff
-        let (verticies, indicies) = Vertex::generate_plane(256.0, 1024);
+        let mesh_size = 1024.0;
+        let mesh_subdivisions = 2048;
+        let (verticies, indicies) = Vertex::generate_plane(&mesh_size, mesh_subdivisions);
 
         let mut waves = [WaveData::default(); WAVE_NUMBER];
         for (i, w) in gather_wave_data(WAVE_NUMBER)
@@ -398,6 +413,12 @@ impl State {
             depth_texture,
             skybox,
             time_uniform,
+            fps: 0.0,
+            last_frame_time_instant: now,
+            fps_timer: 0.0,
+            frame_counter: 0,
+            mesh_size,
+            mesh_subdivisions,
             text_brush,
             time_buffer,
             time_bind_group,
@@ -430,11 +451,23 @@ impl State {
     }
 
     pub fn update(&mut self) {
+        let now = Instant::now();
+        let dt = (now - self.last_frame_time_instant).as_secs_f32();
+        self.last_frame_time_instant = now;
+        self.frame_counter += 1;
+        self.fps_timer += dt;
+        if self.fps_timer >= 1.0 {
+            // Calculate the average fps
+            self.fps = self.frame_counter as f32 / self.fps_timer;
+            // Reset counter and timer
+            self.frame_counter = 0;
+            self.fps_timer = 0.0;
+        }
+
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&mut self.camera);
-        self.time_uniform.increment_time(0.016 / 8.0);
-        // i think this is 60fps. But then divided
-        // by 8 cause it was too fast
+        // Okay now we are using real time.
+        self.time_uniform.increment_time(dt);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -465,32 +498,105 @@ impl State {
                     label: Some("Render Encoder"),
                 });
 
-        let pos = format!(
-            "x: {}, y: {}, z: {}",
-            &self.camera.eye.x.floor(),
-            &self.camera.eye.y.floor(),
-            &self.camera.eye.z.floor()
+        let system_time = SystemTime::now();
+        let datetime: chrono::DateTime<Local> = system_time.into();
+        let formatted_time = datetime.format("%Y-%m-%d %H:%M:%S.%3f UTC%Z").to_string();
+
+        // Really scary looking
+        // [(bearing + 2pi) % 2pi] * [180/pi]
+        let bearing_360 = ((self.camera.bearing.0 + std::f32::consts::TAU) % std::f32::consts::TAU)
+            * 180.0
+            / std::f32::consts::PI;
+        // [-pi/2 < pitch < pi/2] * [180/pi]
+        let pitch = self
+            .camera
+            .pitch
+            .0
+            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2)
+            * 180.0
+            / std::f32::consts::PI;
+        let compass_dir = Camera::bearing_to_compass(bearing_360);
+
+        let tri_count = self.num_indices / 3;
+
+        // Data collected by me, formatted by AI
+        let debug_info_text = format!(
+            "Ocean Simulation v{VERSION}\n\
+            Stage: {DESC}\n\
+            {formatted_time}\n\
+            \n\
+            XYZ: {x:.1} / {y:.1} / {z:.1}\n\
+            Facing: {dir} ({bearing:.0}°)  Pitch: {pitch:+.1}°\n\
+            FOV: {fov:.0}°  ViewDist: {zfar:.0}\n\
+            \n\
+            FPS: {fps:.0} ({ms:.1} ms)\n\
+            Resolution: {w}x{h}\n\
+            \n\
+            Ocean:\n\
+            Size: {size:.0} x {size:.0}\n\
+            Subdivisions: {sub}\n\
+            Waves: {waves}\n\
+            Tris: {tris}",
+            VERSION = VERSION,
+            DESC = DESC,
+            formatted_time = formatted_time,
+            x = self.camera.eye.x,
+            y = self.camera.eye.y,
+            z = self.camera.eye.z,
+            dir = compass_dir,
+            bearing = bearing_360,
+            pitch = pitch,
+            fov = self.camera.fovy,
+            zfar = self.camera.zfar,
+            fps = self.fps,
+            ms = 1000.0 / self.fps.max(0.001),
+            w = self.surface_config.width,
+            h = self.surface_config.height,
+            size = self.mesh_size,
+            sub = self.mesh_subdivisions,
+            waves = WAVE_NUMBER,
+            tris = tri_count,
         );
 
-        let section = wgpu_text::glyph_brush::Section::default()
+        let debug_info_section = wgpu_text::glyph_brush::Section::default()
             .add_text(
-                wgpu_text::glyph_brush::Text::new(pos.as_str())
-                    .with_scale(30.0)
-                    .with_color([1.0, 1.0, 1.0, 1.0]),
+                wgpu_text::glyph_brush::Text::new(debug_info_text.as_str())
+                    .with_scale(25.0)
+                    .with_color([0.98, 0.98, 0.98, 1.0]),
             )
-            .with_bounds((650.0, 180.0))
+            .with_bounds((1280.0, 1440.0))
             .with_layout(
                 wgpu_text::glyph_brush::Layout::default_wrap()
                     .h_align(HorizontalAlign::Left)
                     .v_align(VerticalAlign::Top)
                     .line_breaker(BuiltInLineBreaker::UnicodeLineBreaker),
             )
-            .with_screen_position((30.0, 10.0));
+            .with_screen_position((10.0, 10.0));
+
+        let crosshair_section = wgpu_text::glyph_brush::Section::default()
+            .add_text(
+                wgpu_text::glyph_brush::Text::new("+")
+                    .with_scale(20.0)
+                    .with_color([0.98, 0.98, 0.98, 1.0]),
+            )
+            .with_bounds((40.0, 40.0))
+            .with_layout(
+                wgpu_text::glyph_brush::Layout::default()
+                    .h_align(HorizontalAlign::Center)
+                    .v_align(VerticalAlign::Center),
+            )
+            .with_screen_position((
+                self.surface_config.width as f32 * 0.5 - 20.0,
+                self.surface_config.height as f32 * 0.5 - 20.0,
+            ));
 
         self.text_brush
-            .queue(&self.device, &self.queue, [&section])
+            .queue(
+                &self.device,
+                &self.queue,
+                [&debug_info_section, &crosshair_section],
+            )
             .unwrap();
-
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Combined Render Pass"),
@@ -547,7 +653,6 @@ impl State {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        // self.text_atlast.trim();
 
         Ok(())
     }

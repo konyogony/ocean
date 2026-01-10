@@ -16,13 +16,14 @@ const SKYBOX_INDICES: &[u16] = &[
     4, 5, 1, 1, 0, 4, // -Y
 ];
 
+// TODO: Find better images + organise + guide
 const SKYBOX_FACES: [&[u8]; 6] = [
-    include_bytes!("../images/px1.png"), // Should be +X
-    include_bytes!("../images/nx1.png"), // Should be -X
-    include_bytes!("../images/py1.png"), // Should be +Y
-    include_bytes!("../images/ny1.png"), // Should be -Y
-    include_bytes!("../images/pz1.png"), // Should be +Z
-    include_bytes!("../images/nz1.png"), // Should be -Z
+    include_bytes!("../static/skybox/px.png"), // Should be +X
+    include_bytes!("../static/skybox/nx.png"), // Should be -X
+    include_bytes!("../static/skybox/py.png"), // Should be +Y
+    include_bytes!("../static/skybox/ny.png"), // Should be -Y
+    include_bytes!("../static/skybox/pz.png"), // Should be +Z
+    include_bytes!("../static/skybox/nz.png"), // Should be -Z
 ];
 
 pub struct Skybox {
@@ -42,7 +43,7 @@ impl Skybox {
         camera_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Result<Self> {
         let skybox_texture =
-            Texture::load_skybox_texture(&device, &queue, SKYBOX_FACES, "skybox_texture")?;
+            Texture::load_skybox_texture(device, queue, SKYBOX_FACES, "skybox_texture")?;
 
         let skybox_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Skybox Shader"),
@@ -90,7 +91,7 @@ impl Skybox {
         let skybox_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Skybox Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout, &skybox_texture_bind_group_layout],
+                bind_group_layouts: &[camera_bind_group_layout, &skybox_texture_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
