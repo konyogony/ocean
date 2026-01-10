@@ -1,3 +1,4 @@
+// Note: This file will be GONE soon.
 use rand::Rng;
 use std::f32;
 

@@ -44,6 +44,7 @@ impl Vertex {
         }
     }
 
+    // This will be used later, dont worry
     pub fn get_phillips_spectrum_value(k_vec: [f32; 2]) -> f32 {
         let k: Vector2<f32> = k_vec.into();
         let k2 = k.magnitude2();

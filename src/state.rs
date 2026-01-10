@@ -15,7 +15,15 @@ use wgpu_text::glyph_brush::{BuiltInLineBreaker, HorizontalAlign, VerticalAlign}
 use winit::window::Window;
 
 pub const WAVE_NUMBER: usize = 16;
+pub const FOVY: f32 = 60.0;
+pub const ZFAR: f32 = 1500.0;
+pub const DEFAULT_CAM_SPEED: f32 = 0.02;
+pub const CAM_SENSITIVITY: f32 = 0.002;
+pub const CAM_SPEED_BOOST: f32 = 5.0;
+pub const MESH_SIZE: f32 = 1024.0;
+pub const MESH_SUBDIVISIONS: u32 = 2048;
 
+// TODO: Figure out if this time unfiorm is correct/needed
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TimeUniform {
@@ -39,8 +47,6 @@ pub struct State {
     vertex_buffer: wgpu::Buffer,
     num_indices: u32,
     index_buffer: wgpu::Buffer,
-    // diffuse_bind_group: wgpu::BindGroup,
-    // diffuse_texture: Texture,
     camera: Camera,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
@@ -51,8 +57,6 @@ pub struct State {
 
     depth_texture: Texture,
     skybox: Skybox,
-    mesh_size: f32,
-    mesh_subdivisions: u32,
 
     time_uniform: TimeUniform,
     time_buffer: wgpu::Buffer,
@@ -62,18 +66,16 @@ pub struct State {
     fps_timer: f32,
 
     time_bind_group: wgpu::BindGroup,
-    _wave_data_uniform: WaveDataUniform,
-    _wave_data_buffer: wgpu::Buffer,
     wave_data_bind_group: wgpu::BindGroup,
 
-    // For some apparent reason I read that this HAS to be at the bottom
+    // For some apparent reason I read that this HAS to be at the bottom (not fact checked)
     pub window: Arc<Window>,
 }
 
 impl State {
     pub async fn new(window: Arc<Window>) -> Result<Self> {
+        // Initial window and surface setup
         let size = window.inner_size();
-        let now = Instant::now();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: (wgpu::Backends::PRIMARY),
@@ -108,7 +110,6 @@ impl State {
             .find(|format| format.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
-
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -120,60 +121,21 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
+        // Create a depth texture
         let depth_texture =
             Texture::create_depth_texture(&device, &surface_config, "depth_texture");
 
-        // let diffuse_bytes = include_bytes!("ocean.jpg");
-        // let diffuse_texture = Texture::from_bytes(diffuse_bytes, &device, &queue, "tree").unwrap();
-
-        // let texture_bind_group_layout =
-        //     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        //         label: Some("texture_bind_group_layout"),
-        //         entries: &[
-        //             wgpu::BindGroupLayoutEntry {
-        //                 binding: 0,
-        //                 count: None,
-        //                 visibility: wgpu::ShaderStages::FRAGMENT,
-        //                 ty: wgpu::BindingType::Texture {
-        //                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
-        //                     view_dimension: wgpu::TextureViewDimension::D2,
-        //                     multisampled: false,
-        //                 },
-        //             },
-        //             wgpu::BindGroupLayoutEntry {
-        //                 binding: 1,
-        //                 count: None,
-        //                 visibility: wgpu::ShaderStages::FRAGMENT,
-        //                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-        //             },
-        //         ],
-        //     });
-
-        // let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        //     layout: &texture_bind_group_layout,
-        //     label: Some("diffuse_bind_group"),
-        //     entries: &[
-        //         wgpu::BindGroupEntry {
-        //             binding: 0,
-        //             resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-        //         },
-        //         wgpu::BindGroupEntry {
-        //             binding: 1,
-        //             resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-        //         },
-        //     ],
-        // });
-
+        // Camera setup pointing North
         let mut camera = Camera {
             forward: cgmath::Vector3::zero(),
-            eye: (0.0, 1.0, 2.0).into(),
+            eye: (0.0, 10.0, 0.0).into(),
             yaw: Deg(-90.0).into(),
             pitch: Deg(-20.0).into(),
             up: cgmath::Vector3::unit_y(),
             aspect: surface_config.width as f32 / surface_config.height as f32,
-            fovy: 60.0,
+            fovy: FOVY,
             znear: 0.1,
-            zfar: 1500.0, // Increase for higher render distance
+            zfar: ZFAR, // Increase for higher render distance
             flip_y: false,
             bearing: Deg(0.0).into(),
         };
@@ -211,15 +173,17 @@ impl State {
             label: Some("camera_bind_group"),
         });
 
-        // Speed, Sensitivity, Speed boost (cntrl)
-        let camera_controller = CameraController::new(0.02, 0.002, 5.0);
+        let camera_controller =
+            CameraController::new(DEFAULT_CAM_SPEED, CAM_SENSITIVITY, CAM_SPEED_BOOST);
 
         // Or use include_wgsl! next time
+        // UPD: include_str!() seems to actually perform better
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
+        // This looks HELLA wonky
         let time_uniform = TimeUniform { time_uniform: 0.00 };
 
         let time_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -252,10 +216,8 @@ impl State {
             label: Some("time_bind_group"),
         });
 
-        // Actual wave stuff
-        let mesh_size = 1024.0;
-        let mesh_subdivisions = 2048;
-        let (verticies, indicies) = Vertex::generate_plane(&mesh_size, mesh_subdivisions);
+        // Setting up the surface as well as creating initial waves for simple sum of sine waves
+        let (verticies, indicies) = Vertex::generate_plane(&MESH_SIZE, MESH_SUBDIVISIONS);
 
         let mut waves = [WaveData::default(); WAVE_NUMBER];
         for (i, w) in gather_wave_data(WAVE_NUMBER)
@@ -298,15 +260,16 @@ impl State {
             label: Some("wave_data_bind_group"),
         });
 
-        // Boring stuff...
+        // Creating the skybox
 
         let skybox = Skybox::new(&device, &queue, &surface_config, &camera_bind_group_layout)?;
+
+        // Setting up the render pipelines
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    //                    &texture_bind_group_layout,
                     &camera_bind_group_layout,
                     &time_bind_group_layout,
                     &wave_data_bind_group_layout,
@@ -381,6 +344,8 @@ impl State {
             bias: wgpu::DepthBiasState::default(),
         });
 
+        // Setting up the text
+
         let font_bytes = include_bytes!("../static/JetBrainsMono.ttf");
         let font = FontArc::try_from_slice(font_bytes).unwrap();
         let text_brush = wgpu_text::BrushBuilder::using_font(font)
@@ -403,8 +368,6 @@ impl State {
             num_indices,
             index_buffer,
             is_surface_configured: false,
-            // diffuse_bind_group,
-            // diffuse_texture,
             camera,
             camera_uniform,
             camera_buffer,
@@ -414,17 +377,13 @@ impl State {
             skybox,
             time_uniform,
             fps: 0.0,
-            last_frame_time_instant: now,
+            last_frame_time_instant: Instant::now(),
             fps_timer: 0.0,
             frame_counter: 0,
-            mesh_size,
-            mesh_subdivisions,
             text_brush,
             time_buffer,
             time_bind_group,
-            _wave_data_buffer: wave_data_buffer,
             wave_data_bind_group,
-            _wave_data_uniform: wave_data_uniform,
         })
     }
 
@@ -502,7 +461,6 @@ impl State {
         let datetime: chrono::DateTime<Local> = system_time.into();
         let formatted_time = datetime.format("%Y-%m-%d %H:%M:%S.%3f UTC%Z").to_string();
 
-        // Really scary looking
         // [(bearing + 2pi) % 2pi] * [180/pi]
         let bearing_360 = ((self.camera.bearing.0 + std::f32::consts::TAU) % std::f32::consts::TAU)
             * 180.0
@@ -546,14 +504,14 @@ impl State {
             dir = compass_dir,
             bearing = bearing_360,
             pitch = pitch,
-            fov = self.camera.fovy,
-            zfar = self.camera.zfar,
+            fov = FOVY,
+            zfar = ZFAR,
             fps = self.fps,
             ms = 1000.0 / self.fps.max(0.001),
             w = self.surface_config.width,
             h = self.surface_config.height,
-            size = self.mesh_size,
-            sub = self.mesh_subdivisions,
+            size = MESH_SIZE,
+            sub = MESH_SUBDIVISIONS,
             waves = WAVE_NUMBER,
             tris = tri_count,
         );

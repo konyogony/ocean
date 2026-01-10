@@ -180,14 +180,6 @@ impl CameraController {
                         self.is_cntrl_pressed = is_pressed;
                         true
                     }
-                    // KeyCode::ArrowUp => {
-                    //     self.is_arrowup_pressed = is_pressed;
-                    //     true
-                    // }
-                    // KeyCode::ArrowDown => {
-                    //     self.is_arrowdown_pressed = is_pressed;
-                    //     true
-                    // }
                     _ => false,
                 }
             }
@@ -200,13 +192,6 @@ impl CameraController {
             DeviceEvent::MouseMotion { delta } => {
                 self.mouse_dx += delta.0 as f32;
                 self.mouse_dy += delta.1 as f32;
-                true
-            }
-            // TODO: Needs fixing
-            DeviceEvent::MouseWheel { delta } => {
-                if let MouseScrollDelta::LineDelta(_, y) = delta {
-                    self.speed += y.signum() * 10.0;
-                }
                 true
             }
             _ => false,

@@ -16,7 +16,6 @@ const SKYBOX_INDICES: &[u16] = &[
     4, 5, 1, 1, 0, 4, // -Y
 ];
 
-// TODO: Find better images + organise + guide
 const SKYBOX_FACES: [&[u8]; 6] = [
     include_bytes!("../static/skybox/px.png"), // Should be +X
     include_bytes!("../static/skybox/nx.png"), // Should be -X
