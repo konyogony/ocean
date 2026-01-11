@@ -17,11 +17,13 @@ use winit::window::Window;
 pub const WAVE_NUMBER: usize = 16;
 pub const FOVY: f32 = 60.0;
 pub const ZFAR: f32 = 1500.0;
-pub const DEFAULT_CAM_SPEED: f32 = 0.02;
+pub const DEFAULT_CAM_SPEED: f32 = 0.5;
 pub const CAM_SENSITIVITY: f32 = 0.002;
-pub const CAM_SPEED_BOOST: f32 = 5.0;
+pub const CAM_SPEED_BOOST: f32 = 10.0;
 pub const MESH_SIZE: f32 = 1024.0;
 pub const MESH_SUBDIVISIONS: u32 = 2048;
+pub const PASS_NUM: u32 = 11;
+// 2048 = 2^11 = 11 cols & 11 rows
 
 // TODO: Figure out if this time unfiorm is correct/needed
 #[repr(C)]
@@ -34,6 +36,14 @@ impl TimeUniform {
     pub fn increment_time(&mut self, step: f32) {
         self.time_uniform += step
     }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct FFTUniform {
+    // This will go from 0 to log_2(N) - 1
+    pub stage: u32,
+    pub is_vertical: u32,
 }
 
 pub struct State {
@@ -65,9 +75,14 @@ pub struct State {
     frame_counter: u32,
     fps_timer: f32,
 
+    fft_bind_group_a: wgpu::BindGroup,
+    fft_bind_group_b: wgpu::BindGroup,
+    fft_compute_pipeline: wgpu::ComputePipeline,
+    fft_uniform_buffer: wgpu::Buffer,
+    spectrum_pipeline: wgpu::ComputePipeline,
+    height_field_bind_group: wgpu::BindGroup,
+
     time_bind_group: wgpu::BindGroup,
-    initial_data_array: Vec<InitialData>,
-    initial_data_buffer: wgpu::Buffer,
     initial_data_group: wgpu::BindGroup,
 
     // For some apparent reason I read that this HAS to be at the bottom (not fact checked)
@@ -198,7 +213,9 @@ impl State {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::VERTEX
+                        | wgpu::ShaderStages::FRAGMENT
+                        | wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -221,19 +238,22 @@ impl State {
         // Setting up the surface as well as creating initial waves for simple sum of sine waves
         let (verticies, indicies) = Vertex::generate_plane(&MESH_SIZE, MESH_SUBDIVISIONS);
 
-        let initial_data_array: Vec<InitialData> = InitialData::generate_data(MESH_SIZE);
+        // Initial Data Initalisation
+
+        let initial_data_array: Vec<InitialData> =
+            InitialData::generate_data(MESH_SIZE, MESH_SUBDIVISIONS);
 
         let initial_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Initial Data Buffer"),
             contents: bytemuck::cast_slice(&initial_data_array),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         });
 
         let initial_data_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::COMPUTE,
+                    visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
@@ -253,6 +273,183 @@ impl State {
             label: Some("initial_data_group"),
         });
 
+        // Ping-Pong buffer model
+
+        let fft_buffer_a = device.create_buffer(&wgpu::wgt::BufferDescriptor {
+            label: Some("FFT Ping Buffer"),
+            size: (MESH_SUBDIVISIONS * MESH_SUBDIVISIONS * 8) as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::VERTEX,
+            mapped_at_creation: false,
+        });
+
+        let fft_buffer_b = device.create_buffer(&wgpu::wgt::BufferDescriptor {
+            label: Some("FFT Pong Buffer"),
+            size: (MESH_SUBDIVISIONS * MESH_SUBDIVISIONS * 8) as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::VERTEX,
+            mapped_at_creation: false,
+        });
+
+        let fft_uniform_buffer = device.create_buffer(&wgpu::wgt::BufferDescriptor {
+            label: Some("FFT Uniform Buffer"),
+            size: std::mem::size_of::<FFTUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::VERTEX,
+            mapped_at_creation: false,
+        });
+
+        let fft_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("fft_group_layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Read
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Write
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        // Ping -> Pong
+        let fft_bind_group_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &fft_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: fft_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: fft_buffer_a.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: fft_buffer_b.as_entire_binding(),
+                },
+            ],
+            label: Some("fft_bind_group_a"),
+        });
+
+        // Pong -> Ping
+        let fft_bind_group_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &fft_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: fft_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: fft_buffer_b.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: fft_buffer_a.as_entire_binding(),
+                },
+            ],
+            label: Some("fft_bind_group_b"),
+        });
+
+        let fft_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("FFT Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("fft.wgsl").into()),
+        });
+
+        let fft_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("FFT Pipeline Layout"),
+            bind_group_layouts: &[
+                &fft_group_layout,
+                &time_bind_group_layout,
+                &initial_data_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let fft_compute_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("FFT Compute Layout"),
+                layout: Some(&fft_pipeline_layout),
+                module: &fft_shader,
+                entry_point: Some("fft_step"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
+        let spectrum_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Spectrum Pipeline Layout"),
+                bind_group_layouts: &[
+                    &fft_group_layout,
+                    &time_bind_group_layout,
+                    &initial_data_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let spectrum_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Spectrum Update Pipeline"),
+            layout: Some(&spectrum_pipeline_layout),
+            module: &fft_shader,
+            entry_point: Some("update_spectrum"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
+        let height_field_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("height_field_bind_group_layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let height_field_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("height_field_bind_group"),
+            layout: &height_field_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                // def a
+                resource: fft_buffer_a.as_entire_binding(),
+            }],
+        });
+
         // Creating the skybox
 
         let skybox = Skybox::new(&device, &queue, &surface_config, &camera_bind_group_layout)?;
@@ -262,11 +459,7 @@ impl State {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &camera_bind_group_layout,
-                    &time_bind_group_layout,
-                    &initial_data_group_layout,
-                ],
+                bind_group_layouts: &[&camera_bind_group_layout, &height_field_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -376,10 +569,63 @@ impl State {
             text_brush,
             time_buffer,
             time_bind_group,
-            initial_data_array,
-            initial_data_buffer,
             initial_data_group,
+            fft_uniform_buffer,
+            fft_bind_group_b,
+            fft_bind_group_a,
+            fft_compute_pipeline,
+            spectrum_pipeline,
+            height_field_bind_group,
         })
+    }
+
+    pub fn compute_fft(&mut self) {
+        // First create the encoder
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("FFT Multi-Pass Encoder"),
+            });
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.spectrum_pipeline);
+            pass.set_bind_group(0, &self.fft_bind_group_b, &[]); // Buffer A will have it.
+            pass.set_bind_group(1, &self.time_bind_group, &[]);
+            pass.set_bind_group(2, &self.initial_data_group, &[]);
+            pass.dispatch_workgroups(MESH_SUBDIVISIONS / 16, MESH_SUBDIVISIONS / 16, 1);
+        }
+
+        let mut ping_pong = true;
+        for is_vertical in 0..2 {
+            for stage in 0..11 {
+                let uniform = FFTUniform { stage, is_vertical };
+                // Write it
+                self.queue.write_buffer(
+                    &self.fft_uniform_buffer,
+                    0,
+                    bytemuck::cast_slice(&[uniform]),
+                );
+
+                let mut pass = encoder.begin_compute_pass(&Default::default());
+                pass.set_pipeline(&self.fft_compute_pipeline);
+
+                let bind_group = if ping_pong {
+                    &self.fft_bind_group_a
+                } else {
+                    &self.fft_bind_group_b
+                };
+
+                pass.set_bind_group(0, bind_group, &[]);
+                pass.set_bind_group(1, &self.time_bind_group, &[]);
+                pass.set_bind_group(2, &self.initial_data_group, &[]);
+
+                // Workgroup size of 16x16 in shader
+                pass.dispatch_workgroups(MESH_SUBDIVISIONS / 16, MESH_SUBDIVISIONS / 16, 1);
+                ping_pong = !ping_pong
+            }
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -432,6 +678,7 @@ impl State {
             0,
             bytemuck::cast_slice(&[self.time_uniform]),
         );
+        self.compute_fft();
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -594,8 +841,7 @@ impl State {
             // Ocean second
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.time_bind_group, &[]);
-            render_pass.set_bind_group(2, &self.initial_data_group, &[]);
+            render_pass.set_bind_group(1, &self.height_field_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);

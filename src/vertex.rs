@@ -3,28 +3,30 @@ use rand_distr::{Distribution, Normal};
 use std::f32;
 use std::mem;
 
-const WIND_VECTOR: Vector2<f32> = Vector2::new(-2.1, 2.8); // Magnitude of 3.5
-const AMPLITUDE: f32 = 0.0000001;
+const WIND_VECTOR: Vector2<f32> = Vector2::new(-10.0, 14.0);
+const AMPLITUDE: f32 = 0.02;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InitialData {
     pub k_vec: [f32; 2],
     // Supposed to be a complex number
-    // The conjugate of a+ib would be a-ib
     pub initial_freq_domain: [f32; 2],
+    pub initial_freq_domain_conjugate: [f32; 2],
     pub angular_frequency: f32,
 }
 
 impl InitialData {
-    pub fn new(n: u32, m: u32, size: f32) -> Self {
+    pub fn new(n: u32, m: u32, size: f32, subdivisions: u32) -> Self {
         let normal = Normal::new(0.0, 1.0).unwrap();
 
-        // Create a new vector k which depends on the position in the grid
-        // k_x = 2 * pi * n / N, k_y = 2 * pi * m / N
+        // Now we have to do this, so that we can center everything around the center.
+        let n_f = n as f32 - (subdivisions as f32 / 2.0);
+        let m_f = m as f32 - (subdivisions as f32 / 2.0);
+
         let k_vec = [
-            (2.0 * f32::consts::PI * n as f32) / size,
-            (2.0 * f32::consts::PI * m as f32) / size,
+            (2.0 * f32::consts::PI * n_f) / size,
+            (2.0 * f32::consts::PI * m_f) / size,
         ];
 
         // Random values from the gaussian distribution
@@ -33,34 +35,56 @@ impl InitialData {
         let phk = Self::get_phillips_spectrum_value(k_vec);
         let k: Vector2<f32> = k_vec.into();
         let gk = 9.81 * k.magnitude();
+
+        let freq_domain = Self::get_initial_freq_domain(phk, xi_r, xi_i, size);
+        let freq_domain_conjugate = [freq_domain[0], -freq_domain[1]];
         Self {
             k_vec,
-            initial_freq_domain: Self::get_initial_freq_domain(phk, xi_r, xi_i),
+            initial_freq_domain: freq_domain,
+            initial_freq_domain_conjugate: freq_domain_conjugate,
             angular_frequency: gk.sqrt(),
         }
     }
 
-    pub fn generate_data(size: f32) -> Vec<Self> {
+    pub fn generate_data(size: f32, subdivisions: u32) -> Vec<Self> {
         let mut array = Vec::new();
-        for n in 0..size as u32 {
-            for m in 0..size as u32 {
-                array.push(Self::new(n, m, size));
+        let mut max_magnitude = 0.0f32;
+        let mut sum_magnitude = 0.0f32;
+
+        for n in 0..subdivisions {
+            for m in 0..subdivisions {
+                let data = Self::new(n, m, size, subdivisions);
+                let mag = (data.initial_freq_domain[0].powi(2)
+                    + data.initial_freq_domain[1].powi(2))
+                .sqrt();
+                max_magnitude = max_magnitude.max(mag);
+                sum_magnitude += mag;
+                array.push(data);
             }
         }
+
+        println!(
+            "Initial spectrum - Max: {}, Avg: {}",
+            max_magnitude,
+            sum_magnitude / (subdivisions * subdivisions) as f32
+        );
+
         array
     }
 
-    pub fn get_initial_freq_domain(phk: f32, xi_r: f32, xi_i: f32) -> [f32; 2] {
+    pub fn get_initial_freq_domain(phk: f32, xi_r: f32, xi_i: f32, size: f32) -> [f32; 2] {
         let sqrt_phk = phk.sqrt();
         let factor = sqrt_phk / f32::consts::SQRT_2;
-        [xi_r * factor, xi_i * factor]
+        let scale = 2.0 * f32::consts::PI / size;
+        // We scale here instead of during the compute shader
+        [xi_r * factor * scale, xi_i * factor * scale]
     }
 
     // This will be used later, dont worry
     pub fn get_phillips_spectrum_value(k_vec: [f32; 2]) -> f32 {
         let k: Vector2<f32> = k_vec.into();
         let k2 = k.magnitude2();
-        if k2 == 0.0 {
+        if k2 <= 0.0000001 {
             return 0.0;
         }
 
@@ -77,7 +101,11 @@ impl InitialData {
         let k4 = k2 * k2;
         let exp = f32::exp(-1.0 / (k2 * l2));
 
-        (align2 * AMPLITUDE * exp) / k4
+        // New thing: l_small, dampening for high f
+        let l_small = l * 0.1; // To cut off small wavelengths
+        let damp = f32::exp(-k2 * l_small * l_small);
+
+        (align2 * AMPLITUDE * exp * damp) / k4
     }
 }
 
@@ -117,17 +145,14 @@ impl Vertex {
 
     // UPD: I understood what is happening
     pub fn generate_plane(size: &f32, subdivisions: u32) -> (Vec<Vertex>, Vec<u32>) {
-        // Create empty vectors
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
-        // Get the step and length of half the size
         let step = size / subdivisions as f32;
         let half_size = size / 2.0;
 
-        // Create vertices in each direction
-        for row in 0..=subdivisions {
-            for col in 0..=subdivisions {
+        for row in 0..subdivisions {
+            for col in 0..subdivisions {
                 let x = col as f32 * step - half_size;
                 let z = row as f32 * step - half_size;
 
@@ -137,17 +162,17 @@ impl Vertex {
                         col as f32 / subdivisions as f32,
                         row as f32 / subdivisions as f32,
                     ],
-                    index: (row * (subdivisions + 1) + col),
+                    index: (row * subdivisions + col),
                 });
             }
         }
 
-        // This is just for the indicies
-        for row in 0..subdivisions {
-            for col in 0..subdivisions {
-                let top_left = row * (subdivisions + 1) + col;
+        // Adjust index generation too
+        for row in 0..(subdivisions - 1) {
+            for col in 0..(subdivisions - 1) {
+                let top_left = row * subdivisions + col;
                 let top_right = top_left + 1;
-                let bottom_left = top_left + (subdivisions + 1);
+                let bottom_left = top_left + subdivisions;
                 let bottom_right = bottom_left + 1;
 
                 indices.extend_from_slice(&[

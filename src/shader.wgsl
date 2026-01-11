@@ -1,19 +1,9 @@
 // just some random constants
 
 const g: f32 = 9.81;
+const pi: f32 = 3.14159;
 const MESH_SIZE: f32 = 1024.0;
 const MESH_SUBDIVISIONS: u32 = 2048u;
-
-// Initial frequency domain
-
-struct InitialData {
-    initial_frequency_domain: vec2<f32>,
-    k_vec: vec2<f32>,
-    angular_frequency: f32,
-}
-
-@group(2) @binding(0)
-var<storage, read_write> initial_data: array<InitialData>;
 
 // Camera
 
@@ -23,17 +13,12 @@ struct CameraUniform {
     camera_pos: vec3<f32>,
 };
 
+@group(1) @binding(0)
+var<storage, read> height_field: array<vec2<f32>>;
+
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
-// Time
-
-struct TimeUniform {
-    time_uniform: f32,
-}
-
-@group(1) @binding(0)
-var<uniform> time: TimeUniform;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -47,6 +32,8 @@ struct VertexOutput {
     @location(0) tex_coords: vec2<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) world_pos: vec3<f32>,
+
+    @location(3) height: f32,  // Pass height to fragment shader
 };
 
 // Okay, I have to sum all of the waves together, not have 1 vertex = 1 wave
@@ -56,15 +43,53 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    let position = vec3<f32>(model.position.x, 1.0, model.position.z);
-
-    // Not normalized vector
-    let normal = vec3<f32>(0.0, 1.0, 0.0);
-
-    out.normal = normalize(normal);
+    let row = model.index / (MESH_SUBDIVISIONS);
+    let col = model.index % (MESH_SUBDIVISIONS);
+    
+    // Clamp to valid FFT buffer indices
+    let fft_row = min(row, MESH_SUBDIVISIONS - 1u);
+    let fft_col = min(col, MESH_SUBDIVISIONS - 1u);
+    let fft_index = fft_row * MESH_SUBDIVISIONS + fft_col;
+    
+    // Read height from FFT buffer
+    let h_complex = height_field[fft_index];
+    let height = h_complex.x; 
+    
+    // Apply height displacement
+    let displaced_pos = vec3<f32>(model.position.x, height, model.position.z);
+    
+    // Compute normals from height field gradients
+    var height_right = height;
+    var height_left = height;
+    var height_up = height;
+    var height_down = height;
+    
+    if (fft_col < MESH_SUBDIVISIONS - 1u) {
+        height_right = height_field[fft_row * MESH_SUBDIVISIONS + (fft_col + 1u)].x;
+    }
+    if (fft_col > 0u) {
+        height_left = height_field[fft_row * MESH_SUBDIVISIONS + (fft_col - 1u)].x;
+    }
+    if (fft_row < MESH_SUBDIVISIONS - 1u) {
+        height_up = height_field[(fft_row + 1u) * MESH_SUBDIVISIONS + fft_col].x;
+    }
+    if (fft_row > 0u) {
+        height_down = height_field[(fft_row - 1u) * MESH_SUBDIVISIONS + fft_col].x;
+    }
+    
+    // Compute gradients (scale by grid spacing)
+    let grid_spacing = MESH_SIZE / f32(MESH_SUBDIVISIONS);
+    let dx = (height_right - height_left) / (2.0 * grid_spacing);
+    let dz = (height_up - height_down) / (2.0 * grid_spacing);
+    
+    // Normal = (-dh/dx, 1, -dh/dz) normalized
+    let normal = normalize(vec3<f32>(-dx, 1.0, -dz));
+    
+    out.normal = normal;
     out.tex_coords = model.tex_coords;
-    out.world_pos = position;
-    out.clip_position = camera.view_proj * vec4<f32>(position, 1.0);
+    out.world_pos = displaced_pos;
+    out.clip_position = camera.view_proj * vec4<f32>(displaced_pos, 1.0);
+    
     return out;
 }
 
@@ -97,29 +122,4 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // For taking pictures, make separate screenshots with ambient, diffuse & specular turned down to 0
     let final_color = (base_color * (ambient * 0.3 + diffuse * 0.7)) + (specular * 0.5);
     return vec4<f32>(final_color, 1.0);
-}
-
-@compute @workgroup_size(8,8)
-fn cmp_main(@builtin(global_invocation_id) id: vec3<u32>) {
-    // Get the index... somehow?
-    let index = id.y * MESH_SUBDIVISIONS + id.x;
-
-    // First we have to evolve the spectrum in time.
-    let h_0 = initial_data[index].initial_frequency_domain;
-    // Compute the complex conjugate, which is a-ib
-    let h_0_star = vec2<f32>(h_0.x, -h_0.y);
-    let w_i = initial_data[index].angular_frequency;
-    let wt = w_i * time.time_uniform;
-    // We have to use eulers formula for complex numbers,
-    // e^{iwt} = cos(wt) + i*sin(wt) = vec2(cos(wt),sin(wt))
-    let exponent = vec2<f32>(cos(wt), sin(wt));
-
-    let h_tilda = h_0 * exponent + h_0_star * -exponent;
-
-    let k = initial_data[index].k_vec;
-    let D_unrotated = normalize(k) * h_tilda;
-    // Multiplying by neg i results in rotation -90 deg
-    let D_tilda = vec2<f32>(D_unrotated.y, -D_unrotated.x);
-
-    // Then IFFT
 }
