@@ -4,7 +4,7 @@ use std::f32;
 use std::mem;
 
 const WIND_VECTOR: Vector2<f32> = Vector2::new(-10.0, 14.0);
-const AMPLITUDE: f32 = 0.02;
+const AMPLITUDE: f32 = 0.2;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -46,8 +46,8 @@ impl InitialData {
         }
     }
 
-    pub fn generate_data(size: f32, subdivisions: u32) -> Vec<Self> {
-        let mut array = Vec::new();
+    pub fn generate_data(size: f32, subdivisions: u32) -> (Vec<Self>, f32, f32) {
+        let mut array: Vec<Self> = Vec::new();
         let mut max_magnitude = 0.0f32;
         let mut sum_magnitude = 0.0f32;
 
@@ -63,13 +63,9 @@ impl InitialData {
             }
         }
 
-        println!(
-            "Initial spectrum - Max: {}, Avg: {}",
-            max_magnitude,
-            sum_magnitude / (subdivisions * subdivisions) as f32
-        );
+        let avg_amplitude = sum_magnitude / (subdivisions * subdivisions) as f32;
 
-        array
+        (array, max_magnitude, avg_amplitude)
     }
 
     pub fn get_initial_freq_domain(phk: f32, xi_r: f32, xi_i: f32, size: f32) -> [f32; 2] {
@@ -93,8 +89,8 @@ impl InitialData {
         let w = WIND_VECTOR;
         let w_hat = WIND_VECTOR.normalize();
 
-        let align = cgmath::dot(k_hat, w_hat).max(0.0);
-        let align2 = align * align;
+        let align = cgmath::dot(k_hat, w_hat);
+        let align2 = align.abs().powf(2.0);
 
         let l = w.magnitude2() / 9.81;
         let l2 = l * l;
@@ -102,10 +98,10 @@ impl InitialData {
         let exp = f32::exp(-1.0 / (k2 * l2));
 
         // New thing: l_small, dampening for high f
-        let l_small = l * 0.1; // To cut off small wavelengths
-        let damp = f32::exp(-k2 * l_small * l_small);
+        // let l_small = l * 0.25; // To cut off small wavelengths
+        // let damp = f32::exp(-k2 * l_small * l_small);
 
-        (align2 * AMPLITUDE * exp * damp) / k4
+        (align2 * AMPLITUDE * exp) / k4
     }
 }
 

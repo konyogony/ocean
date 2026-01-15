@@ -17,6 +17,7 @@ winit = "0.30.12"
 wgpu_text = "27.0.1"
 rand_distr = "0.5.1"
 chrono = "0.4.42"
+sysinfo = "0.37.2"
 
 [dependencies.image]
 version = "0.25.8"

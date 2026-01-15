@@ -41,6 +41,12 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     // Get the index... somehow?
     let index = id.y * MESH_SUBDIVISIONS + id.x;
 
+    // Check if we are at the origin
+    if (id.x == 0u && id.y == 0u) {
+        dst[index] = vec2<f32>(0.0, 0.0);
+        return;
+    }
+
     // Extract data using the index
     let h_0 = initial_data[index].initial_frequency_domain;
     let h_0_star = initial_data[index].initial_frequency_domain_conjugate;
@@ -63,7 +69,7 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
 
     // We cant use normalize(), since it would explode at (0, 0)
     let k_len = length(k);
-    let k_norm = k / max(k_len, 0.00001);
+    let k_norm = k / max(k_len, 1e-9);
 
     // Multiplying by neg i results in rotation -90 deg
     // Since -i(a+bi) = (b-ai)
@@ -83,52 +89,53 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
     let y = id.y;
     let n = MESH_SUBDIVISIONS;
     
-    let idx = y * n + x;
+    // To know which direction we are squishing
+    let t = select(x, y, config.is_vertical == 1u);
+    let other = select(y, x, config.is_vertical == 1u);
+
+    // Size of the group we r building
+    let s = 1u << config.stage;
+
+    let j = t % s;
+    let k = t / (s * 2u);
+
+    let idx0_t = k * s + j;
+    let idx1_t = idx0_t + (n / 2u);
     
-    // Determine which coordinate we're operating on
-    let thread_coord = select(x, y, config.is_vertical == 1u);
-    
-    let step_size = 1u << config.stage; // 2^stage
-    let group_size = step_size << 1u;   // 2^(stage+1)
-    
-    // Which half of the butterfly pair are we in?
-    let pair_offset = thread_coord % group_size;
-    let is_upper_half = pair_offset < step_size;
-    
-    // Calculate the stride for reading the butterfly partner
-    let stride = select(1u, n, config.is_vertical == 1u);
-    
-    // Calculate partner index
-    let partner_idx = select(
-        idx + step_size * stride,  // Upper half reads from lower half
-        idx - step_size * stride,  // Lower half reads from upper half
-        is_upper_half
-    );
-    
-    // Twiddle factor calculation
-    let k = f32(pair_offset % step_size);
-    let angle = 2.0 * pi * k / f32(group_size);
-    let twiddle = vec2<f32>(cos(angle), sin(angle));
-    
-    // Butterfly computation
-    let current = src[idx];
-    let partner = src[partner_idx];
-    
-    var result: vec2<f32>;
-    if (is_upper_half) {
-        // Upper half: result = current + twiddle * partner
-        result = current + complex_multiplication(twiddle, partner);
+    var i0: vec2<u32>;
+    var i1: vec2<u32>;
+    if (config.is_vertical == 1u) {
+        i0 = vec2<u32>(other, idx0_t);
+        i1 = vec2<u32>(other, idx1_t);
     } else {
-        // Lower half: result = current - twiddle * partner  
-        result = current - complex_multiplication(twiddle, partner);
+        i0 = vec2<u32>(idx0_t, other);
+        i1 = vec2<u32>(idx1_t, other);
     }
 
-    if (config.stage == PASS_NUM - 1u) {
-        result = result / f32(MESH_SUBDIVISIONS);
-    }
+    let src0 = src[i0.y * n + i0.x];
+    let src1 = src[i1.y * n + i1.x];
+
+    // Positive since Inverse 
+    let angle = pi * f32(j) / f32(s); 
+    let twiddle = vec2<f32>(cos(angle), sin(angle));
+
+    let rotated_src1 = complex_multiplication(twiddle, src1);
     
-    // Write result
-    dst[idx] = result;
+    let is_second_half = (t / s) % 2u;
+    var result: vec2<f32>;
+    
+    if (is_second_half == 0u) {
+        result = src0 + rotated_src1;
+    } else {
+        result = src0 - rotated_src1;
+    }
+
+    // Normalization
+    if (config.stage == PASS_NUM - 1u) {
+        result = result / f32(n);
+    }
+
+    dst[y * n + x] = result;
 }
 
 fn complex_multiplication(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {

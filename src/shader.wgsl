@@ -53,7 +53,7 @@ fn vs_main(
     
     // Read height from FFT buffer
     let h_complex = height_field[fft_index];
-    let height = h_complex.x; 
+    let height = h_complex.x * 10; 
     
     // Apply height displacement
     let displaced_pos = vec3<f32>(model.position.x, height, model.position.z);

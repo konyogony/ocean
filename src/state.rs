@@ -9,6 +9,7 @@ use cgmath::{Deg, Zero};
 use chrono::Local;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
+use sysinfo::System;
 use wgpu::{util::DeviceExt, Color};
 use wgpu_text::glyph_brush::ab_glyph::FontArc;
 use wgpu_text::glyph_brush::{BuiltInLineBreaker, HorizontalAlign, VerticalAlign};
@@ -74,9 +75,19 @@ pub struct State {
     fps: f32,
     frame_counter: u32,
     fps_timer: f32,
+    max_magnitude: f32,
+    avg_magnitude: f32,
+    gpu_name: String,
+    cpu_name: String,
+    kernel_version: String,
+    os_name: String,
+    sys: sysinfo::System,
 
-    fft_bind_group_a: wgpu::BindGroup,
-    fft_bind_group_b: wgpu::BindGroup,
+    fft_buffer_a: wgpu::Buffer,
+    fft_buffer_b: wgpu::Buffer,
+    // Now we need a vector of them so they dont overwrite each other.
+    fft_bind_groups_a: Vec<wgpu::BindGroup>,
+    fft_bind_groups_b: Vec<wgpu::BindGroup>,
     fft_compute_pipeline: wgpu::ComputePipeline,
     fft_uniform_buffer: wgpu::Buffer,
     spectrum_pipeline: wgpu::ComputePipeline,
@@ -240,7 +251,7 @@ impl State {
 
         // Initial Data Initalisation
 
-        let initial_data_array: Vec<InitialData> =
+        let (initial_data_array, max_magnitude, avg_magnitude) =
             InitialData::generate_data(MESH_SIZE, MESH_SUBDIVISIONS);
 
         let initial_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -274,13 +285,37 @@ impl State {
         });
 
         // Ping-Pong buffer model
+        let fft_uniform_size = std::mem::size_of::<FFTUniform>() as u64;
+        // Some buffer magick (i have no clue how u get this)
+        let alignment = device.limits().min_uniform_buffer_offset_alignment as u64;
+        let step_size = (fft_uniform_size + alignment - 1) & !(alignment - 1);
+
+        let total_size = step_size * 22;
+        let fft_config_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FFT Config Array"),
+            size: total_size,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        for is_vertical in 0..2 {
+            for stage in 0..11 {
+                let uniform = FFTUniform { stage, is_vertical };
+                let offset = (is_vertical * 11 + stage) as u64 * step_size;
+                queue.write_buffer(&fft_config_buffer, offset, bytemuck::cast_slice(&[uniform]));
+            }
+        }
+
+        let mut fft_bind_groups_a = Vec::new();
+        let mut fft_bind_groups_b = Vec::new();
 
         let fft_buffer_a = device.create_buffer(&wgpu::wgt::BufferDescriptor {
             label: Some("FFT Ping Buffer"),
             size: (MESH_SUBDIVISIONS * MESH_SUBDIVISIONS * 8) as u64,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::VERTEX,
+                | wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -289,7 +324,8 @@ impl State {
             size: (MESH_SUBDIVISIONS * MESH_SUBDIVISIONS * 8) as u64,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::VERTEX,
+                | wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -340,45 +376,97 @@ impl State {
             ],
         });
 
+        for i in 0..22 {
+            let offset = i as u64 * step_size;
+
+            // Group A (Reads A, Writes B)
+            fft_bind_groups_a.push(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &fft_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &fft_config_buffer,
+                            offset,
+                            size: wgpu::BufferSize::new(fft_uniform_size),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: fft_buffer_a.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: fft_buffer_b.as_entire_binding(),
+                    },
+                ],
+                label: None,
+            }));
+
+            // Group B (Reads B, Writes A)
+            fft_bind_groups_b.push(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &fft_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &fft_config_buffer,
+                            offset,
+                            size: wgpu::BufferSize::new(fft_uniform_size),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: fft_buffer_b.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: fft_buffer_a.as_entire_binding(),
+                    },
+                ],
+                label: None,
+            }));
+        }
+
         // Ping -> Pong
-        let fft_bind_group_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &fft_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: fft_uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: fft_buffer_a.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: fft_buffer_b.as_entire_binding(),
-                },
-            ],
-            label: Some("fft_bind_group_a"),
-        });
+        // let fft_bind_group_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        //     layout: &fft_group_layout,
+        //     entries: &[
+        //         wgpu::BindGroupEntry {
+        //             binding: 0,
+        //             resource: fft_uniform_buffer.as_entire_binding(),
+        //         },
+        //         wgpu::BindGroupEntry {
+        //             binding: 1,
+        //             resource: fft_buffer_a.as_entire_binding(),
+        //         },
+        //         wgpu::BindGroupEntry {
+        //             binding: 2,
+        //             resource: fft_buffer_b.as_entire_binding(),
+        //         },
+        //     ],
+        //     label: Some("fft_bind_group_a"),
+        // });
 
         // Pong -> Ping
-        let fft_bind_group_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &fft_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: fft_uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: fft_buffer_b.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: fft_buffer_a.as_entire_binding(),
-                },
-            ],
-            label: Some("fft_bind_group_b"),
-        });
+        // let fft_bind_group_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        //     layout: &fft_group_layout,
+        //     entries: &[
+        //         wgpu::BindGroupEntry {
+        //             binding: 0,
+        //             resource: fft_uniform_buffer.as_entire_binding(),
+        //         },
+        //         wgpu::BindGroupEntry {
+        //             binding: 1,
+        //             resource: fft_buffer_b.as_entire_binding(),
+        //         },
+        //         wgpu::BindGroupEntry {
+        //             binding: 2,
+        //             resource: fft_buffer_a.as_entire_binding(),
+        //         },
+        //     ],
+        //     label: Some("fft_bind_group_b"),
+        // });
 
         let fft_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("FFT Shader"),
@@ -543,6 +631,22 @@ impl State {
                 surface_config.format,
             );
 
+        // Just collecting system info
+
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        let cpu_name = sys
+            .cpus()
+            .first()
+            .map(|c| c.brand().to_string())
+            .unwrap_or("Unknown CPU".into());
+        //         let ram_total = sys.total_memory() as f32 / 1024.0 / 1024.0;
+        let os_name = sysinfo::System::name().unwrap_or(String::from("Unknown OS"));
+        let kernel_version =
+            sysinfo::System::kernel_version().unwrap_or(String::from("Kernel Version"));
+        let adapter_info = adapter.get_info();
+        let gpu_name = adapter_info.name.clone();
+
         Ok(Self {
             window,
             device,
@@ -571,11 +675,20 @@ impl State {
             time_bind_group,
             initial_data_group,
             fft_uniform_buffer,
-            fft_bind_group_b,
-            fft_bind_group_a,
+            fft_bind_groups_b,
+            fft_bind_groups_a,
+            fft_buffer_a,
+            fft_buffer_b,
             fft_compute_pipeline,
             spectrum_pipeline,
             height_field_bind_group,
+            avg_magnitude,
+            max_magnitude,
+            gpu_name,
+            cpu_name,
+            kernel_version,
+            os_name,
+            sys,
         })
     }
 
@@ -589,40 +702,40 @@ impl State {
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.spectrum_pipeline);
-            pass.set_bind_group(0, &self.fft_bind_group_b, &[]); // Buffer A will have it.
+            pass.set_bind_group(0, &self.fft_bind_groups_b[0], &[]); // Buffer A will have it.
             pass.set_bind_group(1, &self.time_bind_group, &[]);
             pass.set_bind_group(2, &self.initial_data_group, &[]);
             pass.dispatch_workgroups(MESH_SUBDIVISIONS / 16, MESH_SUBDIVISIONS / 16, 1);
         }
 
-        let mut ping_pong = true;
-        for is_vertical in 0..2 {
-            for stage in 0..11 {
-                let uniform = FFTUniform { stage, is_vertical };
-                // Write it
-                self.queue.write_buffer(
-                    &self.fft_uniform_buffer,
-                    0,
-                    bytemuck::cast_slice(&[uniform]),
-                );
+        let mut read_from_a = true;
 
-                let mut pass = encoder.begin_compute_pass(&Default::default());
-                pass.set_pipeline(&self.fft_compute_pipeline);
+        for i in 0..22 {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.fft_compute_pipeline);
 
-                let bind_group = if ping_pong {
-                    &self.fft_bind_group_a
-                } else {
-                    &self.fft_bind_group_b
-                };
+            let bind_group = if read_from_a {
+                &self.fft_bind_groups_a[i]
+            } else {
+                &self.fft_bind_groups_b[i]
+            };
 
-                pass.set_bind_group(0, bind_group, &[]);
-                pass.set_bind_group(1, &self.time_bind_group, &[]);
-                pass.set_bind_group(2, &self.initial_data_group, &[]);
+            pass.set_bind_group(0, bind_group, &[]);
+            pass.set_bind_group(1, &self.time_bind_group, &[]);
+            pass.set_bind_group(2, &self.initial_data_group, &[]);
+            pass.dispatch_workgroups(MESH_SUBDIVISIONS / 16, MESH_SUBDIVISIONS / 16, 1);
 
-                // Workgroup size of 16x16 in shader
-                pass.dispatch_workgroups(MESH_SUBDIVISIONS / 16, MESH_SUBDIVISIONS / 16, 1);
-                ping_pong = !ping_pong
-            }
+            read_from_a = !read_from_a;
+        }
+        // Super smart to copy it to a anyway
+        if !read_from_a {
+            encoder.copy_buffer_to_buffer(
+                &self.fft_buffer_b,
+                0,
+                &self.fft_buffer_a,
+                0,
+                (MESH_SUBDIVISIONS * MESH_SUBDIVISIONS * 8) as u64,
+            );
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -699,6 +812,12 @@ impl State {
                     label: Some("Render Encoder"),
                 });
 
+        self.sys.refresh_memory();
+        self.sys.refresh_cpu_usage();
+        let cpu_usage = self.sys.global_cpu_usage();
+        let ram_total = self.sys.total_memory() as f32 / 1024.0 / 1024.0;
+        let ram_used = self.sys.used_memory() as f32 / 1024.0 / 1024.0;
+
         let system_time = SystemTime::now();
         let datetime: chrono::DateTime<Local> = system_time.into();
         let formatted_time = datetime.format("%Y-%m-%d %H:%M:%S.%3f UTC%Z").to_string();
@@ -718,7 +837,6 @@ impl State {
         let compass_dir = Camera::bearing_to_compass(bearing_360);
 
         let tri_count = self.num_indices / 3;
-
         // Data collected by me, formatted by AI
         let debug_info_text = format!(
             "Ocean Simulation v{VERSION}\n\
@@ -726,17 +844,24 @@ impl State {
             {formatted_time}\n\
             \n\
             XYZ: {x:.1} / {y:.1} / {z:.1}\n\
-            Facing: {dir} ({bearing:.0}°)  Pitch: {pitch:+.1}°\n\
-            FOV: {fov:.0}°  ViewDist: {zfar:.0}\n\
+            Facing: {dir} ({bearing:.0}°) Pitch: {pitch:+.1}°\n\
+            FOV: {fov:.0}° ViewDist: {zfar:.0}\n\
             \n\
+            System:\n\
             FPS: {fps:.0} ({ms:.1} ms)\n\
             Resolution: {w}x{h}\n\
+            GPU: {gpu_name}\n\
+            CPU: {cpu_name} ({cpu_usage:.0}%)\n\
+            RAM: {ram_used:.1}/{ram_total:.1} GB\n\
+            OS: {os_name} ({kernel})\n\
+            Backend: Vulkan (wgpu)\n\
             \n\
             Ocean:\n\
-            Size: {size:.0} x {size:.0}\n\
+            Size: {size:.0}m²\n\
             Subdivisions: {sub}\n\
-            Waves: {waves}\n\
-            Tris: {tris}",
+            Initial spectrum - Max: {max:.10}, Avg: {avg:.10}\n\
+            Tris: {tris}\n\
+            ",
             VERSION = VERSION,
             DESC = DESC,
             formatted_time = formatted_time,
@@ -754,7 +879,15 @@ impl State {
             h = self.surface_config.height,
             size = MESH_SIZE,
             sub = MESH_SUBDIVISIONS,
-            waves = WAVE_NUMBER,
+            max = self.max_magnitude,
+            avg = self.avg_magnitude,
+            gpu_name = self.gpu_name,
+            cpu_name = self.cpu_name,
+            cpu_usage = cpu_usage,
+            ram_total = ram_total,
+            ram_used = ram_used,
+            os_name = self.os_name,
+            kernel = self.kernel_version,
             tris = tri_count,
         );
 
