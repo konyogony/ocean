@@ -868,9 +868,10 @@ impl State {
             Backend: Vulkan (wgpu)\n\
             \n\
             Ocean:\n\
-            Size: {size:.0}m²\n\
-            Patch Size: {patch_size}\n\
-            Subdivisions: {sub}\n\
+            Mesh Size: {size:.0}m²\n\
+            Mesh Subdivisions: {sub}\n\
+            FFT Size: {fft_size}\n\
+            FFT Subdivisions: {fft_sub}\n\
             Amplitude: {amp}\n\
             l_small: {l_small}\n\
             Wind Vector: {wind}\n\
@@ -895,7 +896,7 @@ impl State {
             w = self.surface_config.width,
             h = self.surface_config.height,
             size = MESH_SIZE,
-            sub = FFT_SUBDIVISIONS,
+            sub = MESH_SUBDIVISIONS,
             i_max = self.max_magnitude,
             i_avg = self.avg_magnitude,
             fft_min = self.fft_min,
@@ -912,7 +913,8 @@ impl State {
             amp = AMPLITUDE,
             l_small = L_SMALL,
             wind = wind,
-            patch_size = FFT_SIZE,
+            fft_size = FFT_SIZE,
+            fft_sub = FFT_SUBDIVISIONS,
             max_w = MAX_W,
         )
     }

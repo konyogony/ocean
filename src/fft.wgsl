@@ -2,7 +2,7 @@ const g: f32 = 9.81;
 const pi: f32 = 3.14159;
 const FFT_SUBDIVISIONS: u32 = 1024u;
 const PASS_NUM: u32 = 10u;
-const TIME_SCALE: f32 = 0.12;
+const TIME_SCALE: f32 = 10.0;
 
 
 // FFT Data
@@ -28,10 +28,10 @@ var<uniform> time: TimeUniform;
 
 // Initial frequency domain
 struct InitialData {
+    k_vec: vec2<f32>,
     initial_frequency_domain: vec2<f32>,
     initial_frequency_domain_conjugate: vec2<f32>,
-    k_vec: vec2<f32>,
-    angular_frequency: f32,
+    angular_frequency:  f32,
 }
 
 @group(2) @binding(0)
@@ -126,7 +126,7 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
     let src1 = src[i1.y * n + i1.x];
 
     // Positive since Inverse 
-    let angle = pi * f32(offset) / f32(s);
+    let angle = 2.0 * pi * f32(offset) / f32(2u * s);
     let twiddle = vec2<f32>(cos(angle), sin(angle));
 
     let rotated_src1_xy = complex_multiplication(twiddle, src1.xy);

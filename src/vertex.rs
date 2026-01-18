@@ -3,11 +3,11 @@ use rand_distr::{Distribution, Normal};
 use std::f32;
 use std::mem;
 
-pub const WIND_VECTOR: Vector2<f32> = Vector2::new(-50.5, 45.0);
-pub const AMPLITUDE: f32 = 30.0;
-pub const L_SMALL: f32 = 1.0;
-pub const FFT_SIZE: f32 = 4000.0;
-pub const MAX_W: f32 = f32::INFINITY;
+pub const WIND_VECTOR: Vector2<f32> = Vector2::new(30.0, 20.0);
+pub const AMPLITUDE: f32 = 1.3;
+pub const L_SMALL: f32 = 0.05;
+pub const FFT_SIZE: f32 = 2048.0;
+pub const MAX_W: f32 = 100.0;
 pub const FFT_SUBDIVISIONS: u32 = 1024;
 
 #[repr(C)]
