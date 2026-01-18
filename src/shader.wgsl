@@ -4,6 +4,11 @@ const g: f32 = 9.81;
 const pi: f32 = 3.14159;
 const MESH_SIZE: f32 = 1024.0;
 const MESH_SUBDIVISIONS: u32 = 2048u;
+const FFT_SUBDIVISIONS: u32 = 1024u;
+const FFT_SIZE: f32 = 4000.0;
+const AMPLITUDE_SCALE: f32 = 1.0;
+const CHOP: f32 = 1.0;
+const WAVE_SCALE: f32 = MESH_SIZE / FFT_SIZE;
 
 // Camera
 
@@ -13,8 +18,8 @@ struct CameraUniform {
     camera_pos: vec3<f32>,
 };
 
-@group(1) @binding(0)
-var<storage, read> height_field: array<vec2<f32>>;
+@group(1) @binding(0) var<storage, read> height_field: array<vec4<f32>>;
+@group(1) @binding(1) var<storage, read> height_field_dz: array<vec4<f32>>;
 
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
@@ -36,56 +41,43 @@ struct VertexOutput {
     @location(3) height: f32,  // Pass height to fragment shader
 };
 
-// Okay, I have to sum all of the waves together, not have 1 vertex = 1 wave
+fn get_fft_index(x: u32, y: u32) -> u32 {
+    let ix = x % FFT_SUBDIVISIONS;
+    let iy = y % FFT_SUBDIVISIONS;
+    return iy * FFT_SUBDIVISIONS + ix;
+}
+
 @vertex
 fn vs_main(
     model: VertexInput,
 ) -> VertexOutput {
     var out: VertexOutput;
+    let uv = model.tex_coords; 
 
-    let row = model.index / (MESH_SUBDIVISIONS);
-    let col = model.index % (MESH_SUBDIVISIONS);
+    let fft_x = u32(uv.x * f32(FFT_SUBDIVISIONS));
+    let fft_y = u32(uv.y * f32(FFT_SUBDIVISIONS));
+    let idx = get_fft_index(fft_x, fft_y);
+
+    let h = height_field[idx].x;
+    let dx = height_field[idx].z;
+    let dz = height_field_dz[idx].x;
+    var displaced_pos = model.position;
+    displaced_pos.x += dx * CHOP;
+    displaced_pos.y += h;
+    displaced_pos.z += dz * CHOP;
+
+    let step = 1u;
+    let h_left = height_field[get_fft_index(fft_x - step, fft_y)].x;
+    let h_right = height_field[get_fft_index(fft_x + step, fft_y)].x;
+    let h_down = height_field[get_fft_index(fft_x, fft_y - step)].x;
+    let h_up = height_field[get_fft_index(fft_x, fft_y + step)].x;
     
-    // Clamp to valid FFT buffer indices
-    let fft_row = min(row, MESH_SUBDIVISIONS - 1u);
-    let fft_col = min(col, MESH_SUBDIVISIONS - 1u);
-    let fft_index = fft_row * MESH_SUBDIVISIONS + fft_col;
-    
-    // Read height from FFT buffer
-    let h_complex = height_field[fft_index];
-    let height = h_complex.x * 10; 
-    
-    // Apply height displacement
-    let displaced_pos = vec3<f32>(model.position.x, height, model.position.z);
-    
-    // Compute normals from height field gradients
-    var height_right = height;
-    var height_left = height;
-    var height_up = height;
-    var height_down = height;
-    
-    if (fft_col < MESH_SUBDIVISIONS - 1u) {
-        height_right = height_field[fft_row * MESH_SUBDIVISIONS + (fft_col + 1u)].x;
-    }
-    if (fft_col > 0u) {
-        height_left = height_field[fft_row * MESH_SUBDIVISIONS + (fft_col - 1u)].x;
-    }
-    if (fft_row < MESH_SUBDIVISIONS - 1u) {
-        height_up = height_field[(fft_row + 1u) * MESH_SUBDIVISIONS + fft_col].x;
-    }
-    if (fft_row > 0u) {
-        height_down = height_field[(fft_row - 1u) * MESH_SUBDIVISIONS + fft_col].x;
-    }
-    
-    // Compute gradients (scale by grid spacing)
-    let grid_spacing = MESH_SIZE / f32(MESH_SUBDIVISIONS);
-    let dx = (height_right - height_left) / (2.0 * grid_spacing);
-    let dz = (height_up - height_down) / (2.0 * grid_spacing);
-    
-    // Normal = (-dh/dx, 1, -dh/dz) normalized
-    let normal = normalize(vec3<f32>(-dx, 1.0, -dz));
-    
-    out.normal = normal;
+    // 1 -> 2 to look "smoother"
+    let normal_strength = 2.0; 
+    let dz_grad = (h_up - h_down) * normal_strength;
+    let dx_grad = (h_right - h_left) * normal_strength;
+
+    out.normal = normalize(vec3<f32>(-dx_grad, 1.0, -dz_grad));
     out.tex_coords = model.tex_coords;
     out.world_pos = displaced_pos;
     out.clip_position = camera.view_proj * vec4<f32>(displaced_pos, 1.0);

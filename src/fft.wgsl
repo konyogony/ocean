@@ -1,8 +1,8 @@
 const g: f32 = 9.81;
 const pi: f32 = 3.14159;
-const MESH_SIZE: f32 = 1024.0;
-const MESH_SUBDIVISIONS: u32 = 2048u;
-const PASS_NUM: u32 = 11u;
+const FFT_SUBDIVISIONS: u32 = 1024u;
+const PASS_NUM: u32 = 10u;
+const TIME_SCALE: f32 = 0.12;
 
 
 // FFT Data
@@ -12,8 +12,10 @@ struct FFTUniform {
 }
 
 @group(0) @binding(0) var<uniform> config: FFTUniform;
-@group(0) @binding(1) var<storage, read> src: array<vec2<f32>>;
-@group(0) @binding(2) var<storage, read_write> dst: array<vec2<f32>>;
+@group(0) @binding(1) var<storage, read> src: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> dst: array<vec4<f32>>; // THis will hold height and dx
+@group(0) @binding(3) var<storage, read> src_dz: array<vec4<f32>>; // While this one only dz
+@group(0) @binding(4) var<storage, read_write> dst_dz: array<vec4<f32>>;
 
 // Time
 struct TimeUniform {
@@ -39,47 +41,53 @@ var<storage, read> initial_data: array<InitialData>;
 @compute @workgroup_size(16,16)
 fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     // Get the index... somehow?
-    let index = id.y * MESH_SUBDIVISIONS + id.x;
+    let x = id.x;
+    let y = id.y;
+    let n = FFT_SUBDIVISIONS;
+    let index = y * n + x;
+
+    // Mirrored
+    let m_x = (n - x) % n;
+    let m_y = (n - y) % n;
+    let mirrored_index = m_y * n + m_x;
 
     // Check if we are at the origin
-    if (id.x == 0u && id.y == 0u) {
-        dst[index] = vec2<f32>(0.0, 0.0);
-        return;
-    }
+    // if (id.x == 0u && id.y == 0u) {
+    //     dst[index] = vec2<f32>(0.0, 0.0);
+    //     return;
+    // }
 
     // Extract data using the index
     let h_0 = initial_data[index].initial_frequency_domain;
-    let h_0_star = initial_data[index].initial_frequency_domain_conjugate;
+    let h_0_mirrored = initial_data[mirrored_index].initial_frequency_domain;
+    let h_0_mirrored_conjugate = vec2<f32>(h_0_mirrored.x, -h_0_mirrored.y);
+
     let w_i = initial_data[index].angular_frequency;
-    let k = initial_data[index].k_vec;
+    let wt = w_i * time.time_uniform * TIME_SCALE;
+    let cos_wt = cos(wt);
+    let sin_wt = sin(wt);
 
-    // First we have to evolve the spectrum in time.
-    // Compute the complex conjugate, which is a-ib
-    // let h_0_star = vec2<f32>(h_0.x, -h_0.y);
-    // I made this ^ mistake last time. I thought I could calculate it real-time. But we need -k as param, not k.
-    // Now, we are computing that on CPU + using different rand variables and then passing it on.
-
-    // We have to use eulers formula for complex numbers,
     // e^{iwt} = cos(wt) + i*sin(wt) = vec2(cos(wt),sin(wt))
-    let wt = w_i * time.time_uniform;
-    let exponent = vec2<f32>(cos(wt), sin(wt));
-    let exponent_neg = vec2<f32>(exponent.x, -exponent.y);
+    let exponent = vec2<f32>(cos_wt, sin_wt);
+    let exponent_neg = vec2<f32>(cos_wt, -sin_wt);
 
-    let h_tilda: vec2<f32> = complex_multiplication(h_0, exponent) + complex_multiplication(h_0_star, exponent_neg);
+    let h_tilda: vec2<f32> = complex_multiplication(h_0, exponent) + complex_multiplication(h_0_mirrored_conjugate, exponent_neg);
+    let shift = select(1.0, -1.0, ((x + y) % 2u) == 1u);
+    let h_tilda_shifted = h_tilda * shift;
 
-    // We cant use normalize(), since it would explode at (0, 0)
+    let k = initial_data[index].k_vec;
     let k_len = length(k);
-    let k_norm = k / max(k_len, 1e-9);
+    var h_dx = vec2<f32>(0.0);
+    var h_dz = vec2<f32>(0.0);
 
-    // Multiplying by neg i results in rotation -90 deg
-    // Since -i(a+bi) = (b-ai)
-    let h_tilda_rotated = vec2<f32>(h_tilda.y, -h_tilda.x);
-
-    // I forgot D_tilda constists of 2 complex numbers 
-    let Dx_tilda = k_norm.x * h_tilda_rotated;
-    let Dz_tilda = k_norm.y * h_tilda_rotated;
-
-    dst[index] = h_tilda;
+    if (k_len > 0.0001) {
+        let k_norm = k / k_len;
+        // i * complex is: (-imag, real)
+        h_dx = vec2<f32>(-h_tilda_shifted.y * k_norm.x, h_tilda_shifted.x * k_norm.x);
+        h_dz = vec2<f32>(-h_tilda_shifted.y * k_norm.y, h_tilda_shifted.x * k_norm.y);
+    }
+    dst[index] = vec4<f32>(h_tilda_shifted, h_dx);
+    dst_dz[index] = vec4<f32>(h_dz, 0.0, 0.0); // We have space for something else for the future
 }
 
 // This will run log2(N) * 2 times
@@ -87,7 +95,7 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
 fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
     let x = id.x;
     let y = id.y;
-    let n = MESH_SUBDIVISIONS;
+    let n = FFT_SUBDIVISIONS;
     
     // To know which direction we are squishing
     let t = select(x, y, config.is_vertical == 1u);
@@ -95,12 +103,14 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
 
     // Size of the group we r building
     let s = 1u << config.stage;
+    let group_idx = t / (2u * s);
+    let butterfly_idx = t % (2u * s);
+    let pair = butterfly_idx / s;
+    let offset = butterfly_idx % s;
 
-    let j = t % s;
-    let k = t / (s * 2u);
-
-    let idx0_t = k * s + j;
-    let idx1_t = idx0_t + (n / 2u);
+    let base_idx = group_idx * (2u * s) + offset;
+    let idx0_t = base_idx;
+    let idx1_t = base_idx + s;
     
     var i0: vec2<u32>;
     var i1: vec2<u32>;
@@ -116,26 +126,44 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
     let src1 = src[i1.y * n + i1.x];
 
     // Positive since Inverse 
-    let angle = pi * f32(j) / f32(s); 
+    let angle = pi * f32(offset) / f32(s);
     let twiddle = vec2<f32>(cos(angle), sin(angle));
 
-    let rotated_src1 = complex_multiplication(twiddle, src1);
+    let rotated_src1_xy = complex_multiplication(twiddle, src1.xy);
+    let rotated_src1_zw = complex_multiplication(twiddle, src1.zw);
     
-    let is_second_half = (t / s) % 2u;
-    var result: vec2<f32>;
-    
-    if (is_second_half == 0u) {
-        result = src0 + rotated_src1;
+    var result: vec4<f32>;
+    if (pair == 0u) {
+        result = vec4<f32>(src0.xy + rotated_src1_xy, src0.zw + rotated_src1_zw);
     } else {
-        result = src0 - rotated_src1;
+        result = vec4<f32>(src0.xy - rotated_src1_xy, src0.zw - rotated_src1_zw);
     }
-
-    // Normalization
+    
     if (config.stage == PASS_NUM - 1u) {
         result = result / f32(n);
     }
 
     dst[y * n + x] = result;
+    
+    // again, repeat same for dz
+    let src0_dz = src_dz[i0.y * n + i0.x];
+    let src1_dz = src_dz[i1.y * n + i1.x];
+
+    let rotated_src1_xy_dz = complex_multiplication(twiddle, src1_dz.xy);
+    let rotated_src1_zw_dz = complex_multiplication(twiddle, src1_dz.zw);
+
+    var result_dz: vec4<f32>;
+    if (pair == 0u) {
+        result_dz = vec4<f32>(src0_dz.xy + rotated_src1_xy_dz, src0_dz.zw + rotated_src1_zw_dz);
+    } else {
+        result_dz = vec4<f32>(src0_dz.xy - rotated_src1_xy_dz, src0_dz.zw - rotated_src1_zw_dz);
+    }
+    
+    if (config.stage == PASS_NUM - 1u) {
+        result_dz = result_dz / f32(n);
+    }
+
+    dst_dz[y * n + x] = result_dz;
 }
 
 fn complex_multiplication(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {

@@ -1,8 +1,8 @@
 use crate::camera::{Camera, CameraController, CameraUniform};
 use crate::skybox::Skybox;
 use crate::texture::Texture;
-use crate::vertex::InitialData;
-use crate::vertex::Vertex;
+use crate::vertex::{InitialData, AMPLITUDE, L_SMALL, WIND_VECTOR};
+use crate::vertex::{Vertex, FFT_SIZE, MAX_W};
 use crate::{DESC, VERSION};
 use anyhow::Result;
 use cgmath::{Deg, Zero};
@@ -15,16 +15,16 @@ use wgpu_text::glyph_brush::ab_glyph::FontArc;
 use wgpu_text::glyph_brush::{BuiltInLineBreaker, HorizontalAlign, VerticalAlign};
 use winit::window::Window;
 
-pub const WAVE_NUMBER: usize = 16;
 pub const FOVY: f32 = 60.0;
 pub const ZFAR: f32 = 1500.0;
-pub const DEFAULT_CAM_SPEED: f32 = 0.5;
+pub const DEFAULT_CAM_SPEED: f32 = 0.05;
 pub const CAM_SENSITIVITY: f32 = 0.002;
 pub const CAM_SPEED_BOOST: f32 = 10.0;
 pub const MESH_SIZE: f32 = 1024.0;
 pub const MESH_SUBDIVISIONS: u32 = 2048;
-pub const PASS_NUM: u32 = 11;
-// 2048 = 2^11 = 11 cols & 11 rows
+pub const FFT_SUBDIVISIONS: u32 = 1024;
+pub const PASS_NUM: u32 = 10;
+// 1024 = 2^10 = 10 cols & 10 rows
 
 // TODO: Figure out if this time unfiorm is correct/needed
 #[repr(C)]
@@ -85,6 +85,8 @@ pub struct State {
 
     fft_buffer_a: wgpu::Buffer,
     fft_buffer_b: wgpu::Buffer,
+    fft_buffer_a_dz: wgpu::Buffer,
+    fft_buffer_b_dz: wgpu::Buffer,
     // Now we need a vector of them so they dont overwrite each other.
     fft_bind_groups_a: Vec<wgpu::BindGroup>,
     fft_bind_groups_b: Vec<wgpu::BindGroup>,
@@ -92,6 +94,11 @@ pub struct State {
     fft_uniform_buffer: wgpu::Buffer,
     spectrum_pipeline: wgpu::ComputePipeline,
     height_field_bind_group: wgpu::BindGroup,
+
+    fft_min: f32,
+    fft_max: f32,
+    fft_avg: f32,
+    fft_samples_checked: u32,
 
     time_bind_group: wgpu::BindGroup,
     initial_data_group: wgpu::BindGroup,
@@ -252,7 +259,7 @@ impl State {
         // Initial Data Initalisation
 
         let (initial_data_array, max_magnitude, avg_magnitude) =
-            InitialData::generate_data(MESH_SIZE, MESH_SUBDIVISIONS);
+            InitialData::generate_data(FFT_SUBDIVISIONS);
 
         let initial_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Initial Data Buffer"),
@@ -290,7 +297,7 @@ impl State {
         let alignment = device.limits().min_uniform_buffer_offset_alignment as u64;
         let step_size = (fft_uniform_size + alignment - 1) & !(alignment - 1);
 
-        let total_size = step_size * 22;
+        let total_size = step_size * PASS_NUM as u64 * 2;
         let fft_config_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FFT Config Array"),
             size: total_size,
@@ -299,9 +306,9 @@ impl State {
         });
 
         for is_vertical in 0..2 {
-            for stage in 0..11 {
+            for stage in 0..PASS_NUM {
                 let uniform = FFTUniform { stage, is_vertical };
-                let offset = (is_vertical * 11 + stage) as u64 * step_size;
+                let offset = (is_vertical * PASS_NUM + stage) as u64 * step_size;
                 queue.write_buffer(&fft_config_buffer, offset, bytemuck::cast_slice(&[uniform]));
             }
         }
@@ -309,9 +316,9 @@ impl State {
         let mut fft_bind_groups_a = Vec::new();
         let mut fft_bind_groups_b = Vec::new();
 
-        let fft_buffer_a = device.create_buffer(&wgpu::wgt::BufferDescriptor {
-            label: Some("FFT Ping Buffer"),
-            size: (MESH_SUBDIVISIONS * MESH_SUBDIVISIONS * 8) as u64,
+        let fft_buffer_a = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FFT Ping Buffer DY/DX"),
+            size: (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::VERTEX
@@ -319,9 +326,9 @@ impl State {
             mapped_at_creation: false,
         });
 
-        let fft_buffer_b = device.create_buffer(&wgpu::wgt::BufferDescriptor {
-            label: Some("FFT Pong Buffer"),
-            size: (MESH_SUBDIVISIONS * MESH_SUBDIVISIONS * 8) as u64,
+        let fft_buffer_b = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FFT Pong Buffer DY/DX"),
+            size: (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::VERTEX
@@ -329,7 +336,27 @@ impl State {
             mapped_at_creation: false,
         });
 
-        let fft_uniform_buffer = device.create_buffer(&wgpu::wgt::BufferDescriptor {
+        let fft_buffer_a_dz = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FFT Ping Buffer DZ"),
+            size: (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let fft_buffer_b_dz = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FFT Pong Buffer DZ"),
+            size: (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let fft_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FFT Uniform Buffer"),
             size: std::mem::size_of::<FFTUniform>() as u64,
             usage: wgpu::BufferUsages::UNIFORM
@@ -373,10 +400,30 @@ impl State {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
-        for i in 0..22 {
+        for i in 0..(PASS_NUM * 2) {
             let offset = i as u64 * step_size;
 
             // Group A (Reads A, Writes B)
@@ -398,6 +445,14 @@ impl State {
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: fft_buffer_b.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: fft_buffer_a_dz.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: fft_buffer_b_dz.as_entire_binding(),
                     },
                 ],
                 label: None,
@@ -423,50 +478,18 @@ impl State {
                         binding: 2,
                         resource: fft_buffer_a.as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: fft_buffer_b_dz.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: fft_buffer_a_dz.as_entire_binding(),
+                    },
                 ],
                 label: None,
             }));
         }
-
-        // Ping -> Pong
-        // let fft_bind_group_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        //     layout: &fft_group_layout,
-        //     entries: &[
-        //         wgpu::BindGroupEntry {
-        //             binding: 0,
-        //             resource: fft_uniform_buffer.as_entire_binding(),
-        //         },
-        //         wgpu::BindGroupEntry {
-        //             binding: 1,
-        //             resource: fft_buffer_a.as_entire_binding(),
-        //         },
-        //         wgpu::BindGroupEntry {
-        //             binding: 2,
-        //             resource: fft_buffer_b.as_entire_binding(),
-        //         },
-        //     ],
-        //     label: Some("fft_bind_group_a"),
-        // });
-
-        // Pong -> Ping
-        // let fft_bind_group_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        //     layout: &fft_group_layout,
-        //     entries: &[
-        //         wgpu::BindGroupEntry {
-        //             binding: 0,
-        //             resource: fft_uniform_buffer.as_entire_binding(),
-        //         },
-        //         wgpu::BindGroupEntry {
-        //             binding: 1,
-        //             resource: fft_buffer_b.as_entire_binding(),
-        //         },
-        //         wgpu::BindGroupEntry {
-        //             binding: 2,
-        //             resource: fft_buffer_a.as_entire_binding(),
-        //         },
-        //     ],
-        //     label: Some("fft_bind_group_b"),
-        // });
 
         let fft_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("FFT Shader"),
@@ -516,26 +539,44 @@ impl State {
         let height_field_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("height_field_bind_group_layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
             });
 
         let height_field_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("height_field_bind_group"),
             layout: &height_field_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                // def a
-                resource: fft_buffer_a.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    // def a
+                    resource: fft_buffer_a.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: fft_buffer_a_dz.as_entire_binding(),
+                },
+            ],
         });
 
         // Creating the skybox
@@ -647,6 +688,11 @@ impl State {
         let adapter_info = adapter.get_info();
         let gpu_name = adapter_info.name.clone();
 
+        let fft_min = -max_magnitude;
+        let fft_max = max_magnitude;
+        let fft_avg = avg_magnitude;
+        let fft_samples_checked = 4096;
+
         Ok(Self {
             window,
             device,
@@ -679,6 +725,8 @@ impl State {
             fft_bind_groups_a,
             fft_buffer_a,
             fft_buffer_b,
+            fft_buffer_a_dz,
+            fft_buffer_b_dz,
             fft_compute_pipeline,
             spectrum_pipeline,
             height_field_bind_group,
@@ -689,6 +737,10 @@ impl State {
             kernel_version,
             os_name,
             sys,
+            fft_min,
+            fft_max,
+            fft_avg,
+            fft_samples_checked,
         })
     }
 
@@ -705,12 +757,12 @@ impl State {
             pass.set_bind_group(0, &self.fft_bind_groups_b[0], &[]); // Buffer A will have it.
             pass.set_bind_group(1, &self.time_bind_group, &[]);
             pass.set_bind_group(2, &self.initial_data_group, &[]);
-            pass.dispatch_workgroups(MESH_SUBDIVISIONS / 16, MESH_SUBDIVISIONS / 16, 1);
+            pass.dispatch_workgroups(FFT_SUBDIVISIONS / 16, FFT_SUBDIVISIONS / 16, 1);
         }
 
         let mut read_from_a = true;
 
-        for i in 0..22 {
+        for i in 0..20 {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.fft_compute_pipeline);
 
@@ -723,22 +775,146 @@ impl State {
             pass.set_bind_group(0, bind_group, &[]);
             pass.set_bind_group(1, &self.time_bind_group, &[]);
             pass.set_bind_group(2, &self.initial_data_group, &[]);
-            pass.dispatch_workgroups(MESH_SUBDIVISIONS / 16, MESH_SUBDIVISIONS / 16, 1);
+            pass.dispatch_workgroups(FFT_SUBDIVISIONS / 16, FFT_SUBDIVISIONS / 16, 1);
 
             read_from_a = !read_from_a;
         }
+
         // Super smart to copy it to a anyway
         if !read_from_a {
+            println!("Copying B → A");
             encoder.copy_buffer_to_buffer(
                 &self.fft_buffer_b,
                 0,
                 &self.fft_buffer_a,
                 0,
-                (MESH_SUBDIVISIONS * MESH_SUBDIVISIONS * 8) as u64,
+                (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
+            );
+
+            encoder.copy_buffer_to_buffer(
+                &self.fft_buffer_b_dz,
+                0,
+                &self.fft_buffer_a_dz,
+                0,
+                (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
             );
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    pub fn debug_fft_values_sync(&mut self) {
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FFT Debug Staging"),
+            size: 4096 * 16,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        encoder.copy_buffer_to_buffer(&self.fft_buffer_a, 0, &staging_buffer, 0, 4096 * 16);
+        self.queue.submit(Some(encoder.finish()));
+
+        self.fft_min = -self.max_magnitude;
+        self.fft_max = self.max_magnitude;
+        self.fft_avg = self.avg_magnitude;
+        self.fft_samples_checked = 4096;
+    }
+
+    pub fn get_debug_text(&mut self) -> String {
+        self.sys.refresh_memory();
+        self.sys.refresh_cpu_usage();
+        let cpu_usage = self.sys.global_cpu_usage();
+        let ram_total = self.sys.total_memory() as f32 / 1024.0 / 1024.0;
+        let ram_used = self.sys.used_memory() as f32 / 1024.0 / 1024.0;
+
+        let system_time = SystemTime::now();
+        let datetime: chrono::DateTime<Local> = system_time.into();
+        let formatted_time = datetime.format("%Y-%m-%d %H:%M:%S.%3f UTC%Z").to_string();
+
+        // [(bearing + 2pi) % 2pi] * [180/pi]
+        let bearing_360 = ((self.camera.bearing.0 + std::f32::consts::TAU) % std::f32::consts::TAU)
+            * 180.0
+            / std::f32::consts::PI;
+        // [-pi/2 < pitch < pi/2] * [180/pi]
+        let pitch = self
+            .camera
+            .pitch
+            .0
+            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2)
+            * 180.0
+            / std::f32::consts::PI;
+        let compass_dir = Camera::bearing_to_compass(bearing_360);
+
+        let wind = format!("({}, {})", WIND_VECTOR.x, WIND_VECTOR.y);
+        let tri_count = self.num_indices / 3;
+        // Data collected by me, formatted by AI
+        format!(
+            "Ocean Simulation v{VERSION}\n\
+            Stage: {DESC}\n\
+            {formatted_time}\n\
+            \n\
+            XYZ: {x:.1} / {y:.1} / {z:.1}\n\
+            Facing: {dir} ({bearing:.0}°) Pitch: {pitch:+.1}°\n\
+            FOV: {fov:.0}° ViewDist: {zfar:.0}\n\
+            \n\
+            System:\n\
+            FPS: {fps:.0} ({ms:.1} ms)\n\
+            Resolution: {w}x{h}\n\
+            GPU: {gpu_name}\n\
+            CPU: {cpu_name} ({cpu_usage:.0}%)\n\
+            RAM: {ram_used:.1}/{ram_total:.1} GB\n\
+            OS: {os_name} ({kernel})\n\
+            Backend: Vulkan (wgpu)\n\
+            \n\
+            Ocean:\n\
+            Size: {size:.0}m²\n\
+            Patch Size: {patch_size}\n\
+            Subdivisions: {sub}\n\
+            Amplitude: {amp}\n\
+            l_small: {l_small}\n\
+            Wind Vector: {wind}\n\
+            Max Angular Velocity: {max_w}\n\
+            Initial spectrum - Max: {i_max:.10}, Avg: {i_avg:.10}\n\
+            FFT Output (est) - Min: {fft_min:.6}, Max: {fft_max:.6}, Avg: {fft_avg:.6}\n\
+            Tris: {tris}\n\
+            ",
+            VERSION = VERSION,
+            DESC = DESC,
+            formatted_time = formatted_time,
+            x = self.camera.eye.x,
+            y = self.camera.eye.y,
+            z = self.camera.eye.z,
+            dir = compass_dir,
+            bearing = bearing_360,
+            pitch = pitch,
+            fov = FOVY,
+            zfar = ZFAR,
+            fps = self.fps,
+            ms = 1000.0 / self.fps.max(0.001),
+            w = self.surface_config.width,
+            h = self.surface_config.height,
+            size = MESH_SIZE,
+            sub = FFT_SUBDIVISIONS,
+            i_max = self.max_magnitude,
+            i_avg = self.avg_magnitude,
+            fft_min = self.fft_min,
+            fft_max = self.fft_max,
+            fft_avg = self.fft_avg,
+            gpu_name = self.gpu_name,
+            cpu_name = self.cpu_name,
+            cpu_usage = cpu_usage,
+            ram_total = ram_total,
+            ram_used = ram_used,
+            os_name = self.os_name,
+            kernel = self.kernel_version,
+            tris = tri_count,
+            amp = AMPLITUDE,
+            l_small = L_SMALL,
+            wind = wind,
+            patch_size = FFT_SIZE,
+            max_w = MAX_W,
+        )
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -812,84 +988,7 @@ impl State {
                     label: Some("Render Encoder"),
                 });
 
-        self.sys.refresh_memory();
-        self.sys.refresh_cpu_usage();
-        let cpu_usage = self.sys.global_cpu_usage();
-        let ram_total = self.sys.total_memory() as f32 / 1024.0 / 1024.0;
-        let ram_used = self.sys.used_memory() as f32 / 1024.0 / 1024.0;
-
-        let system_time = SystemTime::now();
-        let datetime: chrono::DateTime<Local> = system_time.into();
-        let formatted_time = datetime.format("%Y-%m-%d %H:%M:%S.%3f UTC%Z").to_string();
-
-        // [(bearing + 2pi) % 2pi] * [180/pi]
-        let bearing_360 = ((self.camera.bearing.0 + std::f32::consts::TAU) % std::f32::consts::TAU)
-            * 180.0
-            / std::f32::consts::PI;
-        // [-pi/2 < pitch < pi/2] * [180/pi]
-        let pitch = self
-            .camera
-            .pitch
-            .0
-            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2)
-            * 180.0
-            / std::f32::consts::PI;
-        let compass_dir = Camera::bearing_to_compass(bearing_360);
-
-        let tri_count = self.num_indices / 3;
-        // Data collected by me, formatted by AI
-        let debug_info_text = format!(
-            "Ocean Simulation v{VERSION}\n\
-            Stage: {DESC}\n\
-            {formatted_time}\n\
-            \n\
-            XYZ: {x:.1} / {y:.1} / {z:.1}\n\
-            Facing: {dir} ({bearing:.0}°) Pitch: {pitch:+.1}°\n\
-            FOV: {fov:.0}° ViewDist: {zfar:.0}\n\
-            \n\
-            System:\n\
-            FPS: {fps:.0} ({ms:.1} ms)\n\
-            Resolution: {w}x{h}\n\
-            GPU: {gpu_name}\n\
-            CPU: {cpu_name} ({cpu_usage:.0}%)\n\
-            RAM: {ram_used:.1}/{ram_total:.1} GB\n\
-            OS: {os_name} ({kernel})\n\
-            Backend: Vulkan (wgpu)\n\
-            \n\
-            Ocean:\n\
-            Size: {size:.0}m²\n\
-            Subdivisions: {sub}\n\
-            Initial spectrum - Max: {max:.10}, Avg: {avg:.10}\n\
-            Tris: {tris}\n\
-            ",
-            VERSION = VERSION,
-            DESC = DESC,
-            formatted_time = formatted_time,
-            x = self.camera.eye.x,
-            y = self.camera.eye.y,
-            z = self.camera.eye.z,
-            dir = compass_dir,
-            bearing = bearing_360,
-            pitch = pitch,
-            fov = FOVY,
-            zfar = ZFAR,
-            fps = self.fps,
-            ms = 1000.0 / self.fps.max(0.001),
-            w = self.surface_config.width,
-            h = self.surface_config.height,
-            size = MESH_SIZE,
-            sub = MESH_SUBDIVISIONS,
-            max = self.max_magnitude,
-            avg = self.avg_magnitude,
-            gpu_name = self.gpu_name,
-            cpu_name = self.cpu_name,
-            cpu_usage = cpu_usage,
-            ram_total = ram_total,
-            ram_used = ram_used,
-            os_name = self.os_name,
-            kernel = self.kernel_version,
-            tris = tri_count,
-        );
+        let debug_info_text = Self::get_debug_text(self);
 
         let debug_info_section = wgpu_text::glyph_brush::Section::default()
             .add_text(

@@ -3,8 +3,12 @@ use rand_distr::{Distribution, Normal};
 use std::f32;
 use std::mem;
 
-const WIND_VECTOR: Vector2<f32> = Vector2::new(-10.0, 14.0);
-const AMPLITUDE: f32 = 0.2;
+pub const WIND_VECTOR: Vector2<f32> = Vector2::new(-50.5, 45.0);
+pub const AMPLITUDE: f32 = 30.0;
+pub const L_SMALL: f32 = 1.0;
+pub const FFT_SIZE: f32 = 4000.0;
+pub const MAX_W: f32 = f32::INFINITY;
+pub const FFT_SUBDIVISIONS: u32 = 1024;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -14,46 +18,73 @@ pub struct InitialData {
     pub initial_freq_domain: [f32; 2],
     pub initial_freq_domain_conjugate: [f32; 2],
     pub angular_frequency: f32,
+    // To get to 32 bytes
+    pub _padding: f32,
 }
 
 impl InitialData {
-    pub fn new(n: u32, m: u32, size: f32, subdivisions: u32) -> Self {
+    pub fn new(n: u32, m: u32, subdivisions: u32) -> Self {
         let normal = Normal::new(0.0, 1.0).unwrap();
 
         // Now we have to do this, so that we can center everything around the center.
-        let n_f = n as f32 - (subdivisions as f32 / 2.0);
-        let m_f = m as f32 - (subdivisions as f32 / 2.0);
+        let n_f = if n < subdivisions / 2 {
+            n as f32
+        } else {
+            (n as f32) - (subdivisions as f32)
+        };
+
+        let m_f = if m < subdivisions / 2 {
+            m as f32
+        } else {
+            (m as f32) - (subdivisions as f32)
+        };
 
         let k_vec = [
-            (2.0 * f32::consts::PI * n_f) / size,
-            (2.0 * f32::consts::PI * m_f) / size,
+            (2.0 * f32::consts::PI * n_f) / FFT_SIZE,
+            (2.0 * f32::consts::PI * m_f) / FFT_SIZE,
         ];
+
+        if k_vec == [0.0, 0.0] {
+            return Self {
+                k_vec,
+                initial_freq_domain: [0.0, 0.0],
+                initial_freq_domain_conjugate: [0.0, 0.0],
+                angular_frequency: 0.0,
+                _padding: 0.0,
+            };
+        }
+
+        let phk = Self::get_phillips_spectrum_value(k_vec);
 
         // Random values from the gaussian distribution
         let xi_r = normal.sample(&mut rand::rng());
         let xi_i = normal.sample(&mut rand::rng());
-        let phk = Self::get_phillips_spectrum_value(k_vec);
+
+        let factor = phk.sqrt() / f32::consts::SQRT_2;
+
         let k: Vector2<f32> = k_vec.into();
         let gk = 9.81 * k.magnitude();
+        let w = gk.sqrt();
 
-        let freq_domain = Self::get_initial_freq_domain(phk, xi_r, xi_i, size);
+        let freq_domain = [xi_r * factor, xi_i * factor];
         let freq_domain_conjugate = [freq_domain[0], -freq_domain[1]];
         Self {
             k_vec,
             initial_freq_domain: freq_domain,
             initial_freq_domain_conjugate: freq_domain_conjugate,
-            angular_frequency: gk.sqrt(),
+            angular_frequency: w,
+            _padding: 0.0,
         }
     }
 
-    pub fn generate_data(size: f32, subdivisions: u32) -> (Vec<Self>, f32, f32) {
+    pub fn generate_data(subdivisions: u32) -> (Vec<Self>, f32, f32) {
         let mut array: Vec<Self> = Vec::new();
         let mut max_magnitude = 0.0f32;
         let mut sum_magnitude = 0.0f32;
 
         for n in 0..subdivisions {
             for m in 0..subdivisions {
-                let data = Self::new(n, m, size, subdivisions);
+                let data = Self::new(n, m, subdivisions);
                 let mag = (data.initial_freq_domain[0].powi(2)
                     + data.initial_freq_domain[1].powi(2))
                 .sqrt();
@@ -66,14 +97,6 @@ impl InitialData {
         let avg_amplitude = sum_magnitude / (subdivisions * subdivisions) as f32;
 
         (array, max_magnitude, avg_amplitude)
-    }
-
-    pub fn get_initial_freq_domain(phk: f32, xi_r: f32, xi_i: f32, size: f32) -> [f32; 2] {
-        let sqrt_phk = phk.sqrt();
-        let factor = sqrt_phk / f32::consts::SQRT_2;
-        let scale = 2.0 * f32::consts::PI / size;
-        // We scale here instead of during the compute shader
-        [xi_r * factor * scale, xi_i * factor * scale]
     }
 
     // This will be used later, dont worry
@@ -90,7 +113,7 @@ impl InitialData {
         let w_hat = WIND_VECTOR.normalize();
 
         let align = cgmath::dot(k_hat, w_hat);
-        let align2 = align.abs().powf(2.0);
+        let align2 = align.abs().powi(2);
 
         let l = w.magnitude2() / 9.81;
         let l2 = l * l;
@@ -98,10 +121,9 @@ impl InitialData {
         let exp = f32::exp(-1.0 / (k2 * l2));
 
         // New thing: l_small, dampening for high f
-        // let l_small = l * 0.25; // To cut off small wavelengths
-        // let damp = f32::exp(-k2 * l_small * l_small);
+        let damp = f32::exp(-k2 * L_SMALL.powi(2));
 
-        (align2 * AMPLITUDE * exp) / k4
+        (align2 * AMPLITUDE * exp * damp) / k4
     }
 }
 
