@@ -814,7 +814,7 @@ impl State {
 
         let mut read_from_a = true;
 
-        for i in 0..20 {
+        for i in 0..(self.ocean_settings.pass_num * 2) as usize {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.fft_compute_pipeline);
 

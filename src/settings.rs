@@ -44,20 +44,20 @@ pub struct OceanSettingsBuilder {
 impl Default for OceanSettingsBuilder {
     fn default() -> Self {
         Self {
-            mesh_size: 1024.0,
+            mesh_size: 1000.0,
             mesh_subdivisions: 2048,
-            fft_size: 1024.0,
-            fft_subdivisions: 1024,
-            time_scale: 10.0,
-            chop_scale: 2.5,
+            fft_size: 1000.0,
+            fft_subdivisions: 512,
+            time_scale: 1.5,
+            chop_scale: 1.5,
             amplitude_scale: 1.0,
-            wind_vector: [30.0, 20.0],
-            amplitude: 10.0,
+            wind_vector: [31.0, 31.0],
+            amplitude: 3.0,
             l_small: 0.001,
             max_w: 100.0,
             fovy: 60.0,
             zfar: 1500.0,
-            cam_speed: 0.5,
+            cam_speed: 0.05,
             cam_boost: 5.0,
             cam_sensitivity: 0.002,
         }
