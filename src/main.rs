@@ -16,6 +16,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DESC: &str = env!("CARGO_PKG_DESCRIPTION");
 
 pub mod camera;
+pub mod settings;
 pub mod skybox;
 pub mod state;
 pub mod texture;

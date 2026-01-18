@@ -1,8 +1,8 @@
 use crate::camera::{Camera, CameraController, CameraUniform};
+use crate::settings::{OceanSettings, OceanSettingsBuilder};
 use crate::skybox::Skybox;
 use crate::texture::Texture;
-use crate::vertex::{InitialData, AMPLITUDE, L_SMALL, WIND_VECTOR};
-use crate::vertex::{Vertex, FFT_SIZE, MAX_W};
+use crate::vertex::{InitialData, Vertex};
 use crate::{DESC, VERSION};
 use anyhow::Result;
 use cgmath::{Deg, Zero};
@@ -14,17 +14,6 @@ use wgpu::{util::DeviceExt, Color};
 use wgpu_text::glyph_brush::ab_glyph::FontArc;
 use wgpu_text::glyph_brush::{BuiltInLineBreaker, HorizontalAlign, VerticalAlign};
 use winit::window::Window;
-
-pub const FOVY: f32 = 60.0;
-pub const ZFAR: f32 = 1500.0;
-pub const DEFAULT_CAM_SPEED: f32 = 0.05;
-pub const CAM_SENSITIVITY: f32 = 0.002;
-pub const CAM_SPEED_BOOST: f32 = 10.0;
-pub const MESH_SIZE: f32 = 1024.0;
-pub const MESH_SUBDIVISIONS: u32 = 2048;
-pub const FFT_SUBDIVISIONS: u32 = 1024;
-pub const PASS_NUM: u32 = 10;
-// 1024 = 2^10 = 10 cols & 10 rows
 
 // TODO: Figure out if this time unfiorm is correct/needed
 #[repr(C)]
@@ -103,6 +92,10 @@ pub struct State {
     time_bind_group: wgpu::BindGroup,
     initial_data_group: wgpu::BindGroup,
 
+    ocean_settings: OceanSettings,
+    ocean_settings_buffer: wgpu::Buffer,
+    ocean_settings_bind_group: wgpu::BindGroup,
+
     // For some apparent reason I read that this HAS to be at the bottom (not fact checked)
     pub window: Arc<Window>,
 }
@@ -156,6 +149,43 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
+        // Ocean settings setup
+        let ocean_settings = OceanSettingsBuilder::default().build();
+
+        let ocean_settings_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Ocean Settings Buffer"),
+            contents: bytemuck::cast_slice(&[ocean_settings]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_SRC,
+        });
+
+        let ocean_settings_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("ocean_settings_bind_group_layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX
+                        | wgpu::ShaderStages::FRAGMENT
+                        | wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(
+                            std::mem::size_of::<OceanSettings>() as u64,
+                        ),
+                    },
+                    count: None,
+                }],
+            });
+
+        let ocean_settings_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ocean_settings_bind_group"),
+            layout: &ocean_settings_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: ocean_settings_buffer.as_entire_binding(),
+            }],
+        });
+
         // Create a depth texture
         let depth_texture =
             Texture::create_depth_texture(&device, &surface_config, "depth_texture");
@@ -168,9 +198,9 @@ impl State {
             pitch: Deg(-20.0).into(),
             up: cgmath::Vector3::unit_y(),
             aspect: surface_config.width as f32 / surface_config.height as f32,
-            fovy: FOVY,
+            fovy: ocean_settings.fovy,
             znear: 0.1,
-            zfar: ZFAR, // Increase for higher render distance
+            zfar: ocean_settings.zfar, // Increase for higher render distance
             flip_y: false,
             bearing: Deg(0.0).into(),
         };
@@ -208,8 +238,11 @@ impl State {
             label: Some("camera_bind_group"),
         });
 
-        let camera_controller =
-            CameraController::new(DEFAULT_CAM_SPEED, CAM_SENSITIVITY, CAM_SPEED_BOOST);
+        let camera_controller = CameraController::new(
+            ocean_settings.cam_speed,
+            ocean_settings.cam_sensitivity,
+            ocean_settings.cam_boost,
+        );
 
         // Or use include_wgsl! next time
         // UPD: include_str!() seems to actually perform better
@@ -254,12 +287,18 @@ impl State {
         });
 
         // Setting up the surface as well as creating initial waves for simple sum of sine waves
-        let (verticies, indicies) = Vertex::generate_plane(&MESH_SIZE, MESH_SUBDIVISIONS);
+        let (verticies, indicies) =
+            Vertex::generate_plane(&ocean_settings.mesh_size, ocean_settings.mesh_subdivisions);
 
         // Initial Data Initalisation
 
-        let (initial_data_array, max_magnitude, avg_magnitude) =
-            InitialData::generate_data(FFT_SUBDIVISIONS);
+        let (initial_data_array, max_magnitude, avg_magnitude) = InitialData::generate_data(
+            ocean_settings.fft_size,
+            ocean_settings.fft_subdivisions,
+            ocean_settings.wind_vector,
+            ocean_settings.l_small,
+            ocean_settings.amplitude,
+        );
 
         let initial_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Initial Data Buffer"),
@@ -297,7 +336,7 @@ impl State {
         let alignment = device.limits().min_uniform_buffer_offset_alignment as u64;
         let step_size = (fft_uniform_size + alignment - 1) & !(alignment - 1);
 
-        let total_size = step_size * PASS_NUM as u64 * 2;
+        let total_size = step_size * ocean_settings.pass_num as u64 * 2;
         let fft_config_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FFT Config Array"),
             size: total_size,
@@ -306,9 +345,9 @@ impl State {
         });
 
         for is_vertical in 0..2 {
-            for stage in 0..PASS_NUM {
+            for stage in 0..ocean_settings.pass_num {
                 let uniform = FFTUniform { stage, is_vertical };
-                let offset = (is_vertical * PASS_NUM + stage) as u64 * step_size;
+                let offset = (is_vertical * ocean_settings.pass_num + stage) as u64 * step_size;
                 queue.write_buffer(&fft_config_buffer, offset, bytemuck::cast_slice(&[uniform]));
             }
         }
@@ -318,7 +357,7 @@ impl State {
 
         let fft_buffer_a = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FFT Ping Buffer DY/DX"),
-            size: (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
+            size: (ocean_settings.fft_subdivisions.pow(2) * 16) as u64,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::VERTEX
@@ -328,7 +367,7 @@ impl State {
 
         let fft_buffer_b = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FFT Pong Buffer DY/DX"),
-            size: (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
+            size: (ocean_settings.fft_subdivisions.pow(2) * 16) as u64,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::VERTEX
@@ -338,7 +377,7 @@ impl State {
 
         let fft_buffer_a_dz = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FFT Ping Buffer DZ"),
-            size: (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
+            size: (ocean_settings.fft_subdivisions.pow(2) * 16) as u64,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::VERTEX
@@ -348,7 +387,7 @@ impl State {
 
         let fft_buffer_b_dz = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FFT Pong Buffer DZ"),
-            size: (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
+            size: (ocean_settings.fft_subdivisions.pow(2) * 16) as u64,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::VERTEX
@@ -423,7 +462,7 @@ impl State {
             ],
         });
 
-        for i in 0..(PASS_NUM * 2) {
+        for i in 0..(ocean_settings.pass_num * 2) {
             let offset = i as u64 * step_size;
 
             // Group A (Reads A, Writes B)
@@ -499,6 +538,7 @@ impl State {
         let fft_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("FFT Pipeline Layout"),
             bind_group_layouts: &[
+                &ocean_settings_bind_group_layout,
                 &fft_group_layout,
                 &time_bind_group_layout,
                 &initial_data_group_layout,
@@ -520,6 +560,7 @@ impl State {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Spectrum Pipeline Layout"),
                 bind_group_layouts: &[
+                    &ocean_settings_bind_group_layout,
                     &fft_group_layout,
                     &time_bind_group_layout,
                     &initial_data_group_layout,
@@ -588,7 +629,11 @@ impl State {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout, &height_field_bind_group_layout],
+                bind_group_layouts: &[
+                    &ocean_settings_bind_group_layout,
+                    &camera_bind_group_layout,
+                    &height_field_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -681,7 +726,6 @@ impl State {
             .first()
             .map(|c| c.brand().to_string())
             .unwrap_or("Unknown CPU".into());
-        //         let ram_total = sys.total_memory() as f32 / 1024.0 / 1024.0;
         let os_name = sysinfo::System::name().unwrap_or(String::from("Unknown OS"));
         let kernel_version =
             sysinfo::System::kernel_version().unwrap_or(String::from("Kernel Version"));
@@ -741,6 +785,9 @@ impl State {
             fft_max,
             fft_avg,
             fft_samples_checked,
+            ocean_settings,
+            ocean_settings_buffer,
+            ocean_settings_bind_group,
         })
     }
 
@@ -754,10 +801,15 @@ impl State {
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.spectrum_pipeline);
-            pass.set_bind_group(0, &self.fft_bind_groups_b[0], &[]); // Buffer A will have it.
-            pass.set_bind_group(1, &self.time_bind_group, &[]);
-            pass.set_bind_group(2, &self.initial_data_group, &[]);
-            pass.dispatch_workgroups(FFT_SUBDIVISIONS / 16, FFT_SUBDIVISIONS / 16, 1);
+            pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
+            pass.set_bind_group(1, &self.fft_bind_groups_b[0], &[]); // Buffer A will have it.
+            pass.set_bind_group(2, &self.time_bind_group, &[]);
+            pass.set_bind_group(3, &self.initial_data_group, &[]);
+            pass.dispatch_workgroups(
+                &self.ocean_settings.fft_subdivisions / 16,
+                &self.ocean_settings.fft_subdivisions / 16,
+                1,
+            );
         }
 
         let mut read_from_a = true;
@@ -772,10 +824,15 @@ impl State {
                 &self.fft_bind_groups_b[i]
             };
 
-            pass.set_bind_group(0, bind_group, &[]);
-            pass.set_bind_group(1, &self.time_bind_group, &[]);
-            pass.set_bind_group(2, &self.initial_data_group, &[]);
-            pass.dispatch_workgroups(FFT_SUBDIVISIONS / 16, FFT_SUBDIVISIONS / 16, 1);
+            pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
+            pass.set_bind_group(1, bind_group, &[]);
+            pass.set_bind_group(2, &self.time_bind_group, &[]);
+            pass.set_bind_group(3, &self.initial_data_group, &[]);
+            pass.dispatch_workgroups(
+                &self.ocean_settings.fft_subdivisions / 16,
+                &self.ocean_settings.fft_subdivisions / 16,
+                1,
+            );
 
             read_from_a = !read_from_a;
         }
@@ -788,7 +845,7 @@ impl State {
                 0,
                 &self.fft_buffer_a,
                 0,
-                (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
+                (&self.ocean_settings.fft_subdivisions.pow(2) * 16) as u64,
             );
 
             encoder.copy_buffer_to_buffer(
@@ -796,7 +853,7 @@ impl State {
                 0,
                 &self.fft_buffer_a_dz,
                 0,
-                (FFT_SUBDIVISIONS * FFT_SUBDIVISIONS * 16) as u64,
+                (&self.ocean_settings.fft_subdivisions.pow(2) * 16) as u64,
             );
         }
 
@@ -846,7 +903,10 @@ impl State {
             / std::f32::consts::PI;
         let compass_dir = Camera::bearing_to_compass(bearing_360);
 
-        let wind = format!("({}, {})", WIND_VECTOR.x, WIND_VECTOR.y);
+        let wind = format!(
+            "({}, {})",
+            self.ocean_settings.wind_vector[0], self.ocean_settings.wind_vector[1]
+        );
         let tri_count = self.num_indices / 3;
         // Data collected by me, formatted by AI
         format!(
@@ -857,6 +917,7 @@ impl State {
             XYZ: {x:.1} / {y:.1} / {z:.1}\n\
             Facing: {dir} ({bearing:.0}°) Pitch: {pitch:+.1}°\n\
             FOV: {fov:.0}° ViewDist: {zfar:.0}\n\
+            Cam Speed: {cam_speed} (Boost: {cam_boost})\n\
             \n\
             System:\n\
             FPS: {fps:.0} ({ms:.1} ms)\n\
@@ -889,14 +950,14 @@ impl State {
             dir = compass_dir,
             bearing = bearing_360,
             pitch = pitch,
-            fov = FOVY,
-            zfar = ZFAR,
+            fov = self.ocean_settings.fovy,
+            zfar = self.ocean_settings.zfar,
             fps = self.fps,
             ms = 1000.0 / self.fps.max(0.001),
             w = self.surface_config.width,
             h = self.surface_config.height,
-            size = MESH_SIZE,
-            sub = MESH_SUBDIVISIONS,
+            size = self.ocean_settings.mesh_size,
+            sub = self.ocean_settings.mesh_subdivisions,
             i_max = self.max_magnitude,
             i_avg = self.avg_magnitude,
             fft_min = self.fft_min,
@@ -910,12 +971,14 @@ impl State {
             os_name = self.os_name,
             kernel = self.kernel_version,
             tris = tri_count,
-            amp = AMPLITUDE,
-            l_small = L_SMALL,
+            amp = self.ocean_settings.amplitude,
+            l_small = self.ocean_settings.l_small,
             wind = wind,
-            fft_size = FFT_SIZE,
-            fft_sub = FFT_SUBDIVISIONS,
-            max_w = MAX_W,
+            fft_size = self.ocean_settings.fft_size,
+            fft_sub = self.ocean_settings.fft_subdivisions,
+            max_w = self.ocean_settings.max_w,
+            cam_speed = self.ocean_settings.cam_speed,
+            cam_boost = self.ocean_settings.cam_boost
         )
     }
 
@@ -1074,8 +1137,9 @@ impl State {
 
             // Ocean second
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.height_field_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.height_field_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);

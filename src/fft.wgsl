@@ -1,9 +1,29 @@
 const g: f32 = 9.81;
 const pi: f32 = 3.14159;
-const FFT_SUBDIVISIONS: u32 = 1024u;
-const PASS_NUM: u32 = 10u;
-const TIME_SCALE: f32 = 10.0;
 
+struct OceanSettings {
+    mesh_size: f32,         
+    mesh_subdivisions: u32, 
+    fft_size: f32,          
+    fft_subdivisions: u32,  
+    pass_num: u32,         
+    time_scale: f32,        
+    chop_scale: f32,        
+    amplitude_scale: f32,   
+    wave_scale: f32,      
+    wind_vector: vec2<f32>,
+    amplitude: f32,         
+    l_small: f32,           
+    max_w: f32,             
+    fovy: f32,              
+    zfar: f32,              
+    cam_speed: f32,         
+    cam_boost: f32,         
+    cam_sensitivity: f32,   
+}
+
+@group(0) @binding(0)
+var<uniform> ocean_settings: OceanSettings;
 
 // FFT Data
 struct FFTUniform {
@@ -11,18 +31,18 @@ struct FFTUniform {
     is_vertical: u32,
 }
 
-@group(0) @binding(0) var<uniform> config: FFTUniform;
-@group(0) @binding(1) var<storage, read> src: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read_write> dst: array<vec4<f32>>; // THis will hold height and dx
-@group(0) @binding(3) var<storage, read> src_dz: array<vec4<f32>>; // While this one only dz
-@group(0) @binding(4) var<storage, read_write> dst_dz: array<vec4<f32>>;
+@group(1) @binding(0) var<uniform> config: FFTUniform;
+@group(1) @binding(1) var<storage, read> src: array<vec4<f32>>;
+@group(1) @binding(2) var<storage, read_write> dst: array<vec4<f32>>; // THis will hold height and dx
+@group(1) @binding(3) var<storage, read> src_dz: array<vec4<f32>>; // While this one only dz
+@group(1) @binding(4) var<storage, read_write> dst_dz: array<vec4<f32>>;
 
 // Time
 struct TimeUniform {
     time_uniform: f32,
 }
 
-@group(1) @binding(0)
+@group(2) @binding(0)
 var<uniform> time: TimeUniform;
 
 
@@ -34,7 +54,7 @@ struct InitialData {
     angular_frequency:  f32,
 }
 
-@group(2) @binding(0)
+@group(3) @binding(0)
 var<storage, read> initial_data: array<InitialData>;
 
 // This shall run only once
@@ -43,7 +63,7 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     // Get the index... somehow?
     let x = id.x;
     let y = id.y;
-    let n = FFT_SUBDIVISIONS;
+    let n = ocean_settings.fft_subdivisions;
     let index = y * n + x;
 
     // Mirrored
@@ -63,7 +83,7 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     let h_0_mirrored_conjugate = vec2<f32>(h_0_mirrored.x, -h_0_mirrored.y);
 
     let w_i = initial_data[index].angular_frequency;
-    let wt = w_i * time.time_uniform * TIME_SCALE;
+    let wt = w_i * time.time_uniform * ocean_settings.time_scale;
     let cos_wt = cos(wt);
     let sin_wt = sin(wt);
 
@@ -95,7 +115,7 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
 fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
     let x = id.x;
     let y = id.y;
-    let n = FFT_SUBDIVISIONS;
+    let n = ocean_settings.fft_subdivisions;
     
     // To know which direction we are squishing
     let t = select(x, y, config.is_vertical == 1u);
@@ -139,7 +159,7 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
         result = vec4<f32>(src0.xy - rotated_src1_xy, src0.zw - rotated_src1_zw);
     }
     
-    if (config.stage == PASS_NUM - 1u) {
+    if (config.stage == ocean_settings.pass_num - 1u) {
         result = result / f32(n);
     }
 
@@ -159,7 +179,7 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
         result_dz = vec4<f32>(src0_dz.xy - rotated_src1_xy_dz, src0_dz.zw - rotated_src1_zw_dz);
     }
     
-    if (config.stage == PASS_NUM - 1u) {
+    if (config.stage == ocean_settings.pass_num - 1u) {
         result_dz = result_dz / f32(n);
     }
 

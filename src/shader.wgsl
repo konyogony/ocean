@@ -1,14 +1,29 @@
-// just some random constants
-
 const g: f32 = 9.81;
 const pi: f32 = 3.14159;
-const MESH_SIZE: f32 = 1024.0;
-const MESH_SUBDIVISIONS: u32 = 2048u;
-const FFT_SUBDIVISIONS: u32 = 1024u;
-const FFT_SIZE: f32 = 2048.0;
-const AMPLITUDE_SCALE: f32 = 1.0;
-const CHOP: f32 = 1.0;
-const WAVE_SCALE: f32 = MESH_SIZE / FFT_SIZE;
+
+struct OceanSettings {
+    mesh_size: f32,         
+    mesh_subdivisions: u32, 
+    fft_size: f32,          
+    fft_subdivisions: u32,  
+    pass_num: u32,         
+    time_scale: f32,        
+    chop_scale: f32,        
+    amplitude_scale: f32,   
+    wave_scale: f32,      
+    wind_vector: vec2<f32>,
+    amplitude: f32,         
+    l_small: f32,           
+    max_w: f32,             
+    fovy: f32,              
+    zfar: f32,              
+    cam_speed: f32,         
+    cam_boost: f32,         
+    cam_sensitivity: f32,   
+}
+
+@group(0) @binding(0)
+var<uniform> ocean_settings: OceanSettings;
 
 // Camera
 
@@ -18,10 +33,10 @@ struct CameraUniform {
     camera_pos: vec3<f32>,
 };
 
-@group(1) @binding(0) var<storage, read> height_field: array<vec4<f32>>;
-@group(1) @binding(1) var<storage, read> height_field_dz: array<vec4<f32>>;
+@group(2) @binding(0) var<storage, read> height_field: array<vec4<f32>>;
+@group(2) @binding(1) var<storage, read> height_field_dz: array<vec4<f32>>;
 
-@group(0) @binding(0)
+@group(1) @binding(0)
 var<uniform> camera: CameraUniform;
 
 
@@ -42,35 +57,38 @@ struct VertexOutput {
 };
 
 fn get_fft_index(x: u32, y: u32) -> u32 {
-    let ix = x % FFT_SUBDIVISIONS;
-    let iy = y % FFT_SUBDIVISIONS;
-    return iy * FFT_SUBDIVISIONS + ix;
+    let ix = x % ocean_settings.fft_subdivisions;
+    let iy = y % ocean_settings.fft_subdivisions;
+    return iy * ocean_settings.fft_subdivisions + ix;
 }
 
 // Billinear sampling... 
 fn sample_height_field(world_x: f32, world_z: f32) -> vec4<f32> {
-    let fft_u = (world_x / FFT_SIZE) + 0.5;
-    let fft_v = (world_z / FFT_SIZE) + 0.5;
+    let fft_size = ocean_settings.fft_size;
+    let fft_subdivisions = ocean_settings.fft_subdivisions;
+
+    let fft_u = (world_x / fft_size) + 0.5;
+    let fft_v = (world_z / fft_size) + 0.5;
     let u = fract(fft_u);
     let v = fract(fft_v);
     
-    let texel_x = u * f32(FFT_SUBDIVISIONS);
-    let texel_y = v * f32(FFT_SUBDIVISIONS);
+    let texel_x = u * f32(fft_subdivisions);
+    let texel_y = v * f32(fft_subdivisions);
     
     // Get the four nearest cells
-    let x0 = u32(floor(texel_x)) % FFT_SUBDIVISIONS;
-    let y0 = u32(floor(texel_y)) % FFT_SUBDIVISIONS;
-    let x1 = (x0 + 1u) % FFT_SUBDIVISIONS;
-    let y1 = (y0 + 1u) % FFT_SUBDIVISIONS;
+    let x0 = u32(floor(texel_x)) % fft_subdivisions;
+    let y0 = u32(floor(texel_y)) % fft_subdivisions;
+    let x1 = (x0 + 1u) % fft_subdivisions;
+    let y1 = (y0 + 1u) % fft_subdivisions;
     
     let fx = fract(texel_x);
     let fy = fract(texel_y);
     
     // Sample four corners
-    let h00 = height_field[y0 * FFT_SUBDIVISIONS + x0];
-    let h10 = height_field[y0 * FFT_SUBDIVISIONS + x1];
-    let h01 = height_field[y1 * FFT_SUBDIVISIONS + x0];
-    let h11 = height_field[y1 * FFT_SUBDIVISIONS + x1];
+    let h00 = height_field[y0 * fft_subdivisions + x0];
+    let h10 = height_field[y0 * fft_subdivisions + x1];
+    let h01 = height_field[y1 * fft_subdivisions + x0];
+    let h11 = height_field[y1 * fft_subdivisions + x1];
     
     let h0 = mix(h00, h10, fx);
     let h1 = mix(h01, h11, fx);
@@ -78,27 +96,30 @@ fn sample_height_field(world_x: f32, world_z: f32) -> vec4<f32> {
 }
 
 fn sample_height_field_dz(world_x: f32, world_z: f32) -> vec4<f32> {
+    let fft_size = ocean_settings.fft_size;
+    let fft_subdivisions = ocean_settings.fft_subdivisions;
+
     // Same logic for dz buffer
-    let fft_u = (world_x / FFT_SIZE) + 0.5;
-    let fft_v = (world_z / FFT_SIZE) + 0.5;
+    let fft_u = (world_x / fft_size) + 0.5;
+    let fft_v = (world_z / fft_size) + 0.5;
     let u = fract(fft_u);
     let v = fract(fft_v);
     
-    let texel_x = u * f32(FFT_SUBDIVISIONS);
-    let texel_y = v * f32(FFT_SUBDIVISIONS);
+    let texel_x = u * f32(fft_subdivisions);
+    let texel_y = v * f32(fft_subdivisions);
     
-    let x0 = u32(floor(texel_x)) % FFT_SUBDIVISIONS;
-    let y0 = u32(floor(texel_y)) % FFT_SUBDIVISIONS;
-    let x1 = (x0 + 1u) % FFT_SUBDIVISIONS;
-    let y1 = (y0 + 1u) % FFT_SUBDIVISIONS;
+    let x0 = u32(floor(texel_x)) % fft_subdivisions;
+    let y0 = u32(floor(texel_y)) % fft_subdivisions;
+    let x1 = (x0 + 1u) % fft_subdivisions;
+    let y1 = (y0 + 1u) % fft_subdivisions;
     
     let fx = fract(texel_x);
     let fy = fract(texel_y);
     
-    let h00 = height_field_dz[y0 * FFT_SUBDIVISIONS + x0];
-    let h10 = height_field_dz[y0 * FFT_SUBDIVISIONS + x1];
-    let h01 = height_field_dz[y1 * FFT_SUBDIVISIONS + x0];
-    let h11 = height_field_dz[y1 * FFT_SUBDIVISIONS + x1];
+    let h00 = height_field_dz[y0 * fft_subdivisions + x0];
+    let h10 = height_field_dz[y0 * fft_subdivisions + x1];
+    let h01 = height_field_dz[y1 * fft_subdivisions + x0];
+    let h11 = height_field_dz[y1 * fft_subdivisions + x1];
     
     let h0 = mix(h00, h10, fx);
     let h1 = mix(h01, h11, fx);
@@ -122,11 +143,11 @@ fn vs_main(
     let dz = dz_sample.x;
     
     var displaced_pos = model.position;
-    displaced_pos.x += dx * CHOP;
+    displaced_pos.x += dx * ocean_settings.chop_scale;
     displaced_pos.y += h;
-    displaced_pos.z += dz * CHOP;
+    displaced_pos.z += dz * ocean_settings.chop_scale;
     
-    let delta = FFT_SIZE / f32(FFT_SUBDIVISIONS);
+    let delta = 0.5;
     let h_left = sample_height_field(world_x - delta, world_z).x;
     let h_right = sample_height_field(world_x + delta, world_z).x;
     let h_down = sample_height_field(world_x, world_z - delta).x;

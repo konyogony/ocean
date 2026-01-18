@@ -3,13 +3,6 @@ use rand_distr::{Distribution, Normal};
 use std::f32;
 use std::mem;
 
-pub const WIND_VECTOR: Vector2<f32> = Vector2::new(30.0, 20.0);
-pub const AMPLITUDE: f32 = 1.3;
-pub const L_SMALL: f32 = 0.05;
-pub const FFT_SIZE: f32 = 2048.0;
-pub const MAX_W: f32 = 100.0;
-pub const FFT_SUBDIVISIONS: u32 = 1024;
-
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InitialData {
@@ -23,7 +16,15 @@ pub struct InitialData {
 }
 
 impl InitialData {
-    pub fn new(n: u32, m: u32, subdivisions: u32) -> Self {
+    pub fn new(
+        n: u32,
+        m: u32,
+        fft_size: f32,
+        subdivisions: u32,
+        wind_vector: [f32; 2],
+        l_small: f32,
+        amplitude: f32,
+    ) -> Self {
         let normal = Normal::new(0.0, 1.0).unwrap();
 
         // Now we have to do this, so that we can center everything around the center.
@@ -40,8 +41,8 @@ impl InitialData {
         };
 
         let k_vec = [
-            (2.0 * f32::consts::PI * n_f) / FFT_SIZE,
-            (2.0 * f32::consts::PI * m_f) / FFT_SIZE,
+            (2.0 * f32::consts::PI * n_f) / fft_size,
+            (2.0 * f32::consts::PI * m_f) / fft_size,
         ];
 
         if k_vec == [0.0, 0.0] {
@@ -54,7 +55,7 @@ impl InitialData {
             };
         }
 
-        let phk = Self::get_phillips_spectrum_value(k_vec);
+        let phk = Self::get_phillips_spectrum_value(k_vec, wind_vector, l_small, amplitude);
 
         // Random values from the gaussian distribution
         let xi_r = normal.sample(&mut rand::rng());
@@ -77,14 +78,28 @@ impl InitialData {
         }
     }
 
-    pub fn generate_data(subdivisions: u32) -> (Vec<Self>, f32, f32) {
+    pub fn generate_data(
+        fft_size: f32,
+        subdivisions: u32,
+        wind_vector: [f32; 2],
+        l_small: f32,
+        amplitude: f32,
+    ) -> (Vec<Self>, f32, f32) {
         let mut array: Vec<Self> = Vec::new();
         let mut max_magnitude = 0.0f32;
         let mut sum_magnitude = 0.0f32;
 
         for n in 0..subdivisions {
             for m in 0..subdivisions {
-                let data = Self::new(n, m, subdivisions);
+                let data = Self::new(
+                    n,
+                    m,
+                    fft_size,
+                    subdivisions,
+                    wind_vector,
+                    l_small,
+                    amplitude,
+                );
                 let mag = (data.initial_freq_domain[0].powi(2)
                     + data.initial_freq_domain[1].powi(2))
                 .sqrt();
@@ -100,7 +115,12 @@ impl InitialData {
     }
 
     // This will be used later, dont worry
-    pub fn get_phillips_spectrum_value(k_vec: [f32; 2]) -> f32 {
+    pub fn get_phillips_spectrum_value(
+        k_vec: [f32; 2],
+        wind_vector: [f32; 2],
+        l_small: f32,
+        amplitude: f32,
+    ) -> f32 {
         let k: Vector2<f32> = k_vec.into();
         let k2 = k.magnitude2();
         if k2 <= 0.0000001 {
@@ -109,8 +129,8 @@ impl InitialData {
 
         let k_hat = k.normalize();
 
-        let w = WIND_VECTOR;
-        let w_hat = WIND_VECTOR.normalize();
+        let w: Vector2<f32> = wind_vector.into();
+        let w_hat = w.normalize();
 
         let align = cgmath::dot(k_hat, w_hat);
         let align2 = align.abs().powi(2);
@@ -121,9 +141,9 @@ impl InitialData {
         let exp = f32::exp(-1.0 / (k2 * l2));
 
         // New thing: l_small, dampening for high f
-        let damp = f32::exp(-k2 * L_SMALL.powi(2));
+        let damp = f32::exp(-k2 * l_small.powi(2));
 
-        (align2 * AMPLITUDE * exp * damp) / k4
+        (align2 * amplitude * exp * damp) / k4
     }
 }
 
