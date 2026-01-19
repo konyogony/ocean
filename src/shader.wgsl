@@ -1,5 +1,8 @@
 const g: f32 = 9.81;
 const pi: f32 = 3.14159;
+const LIGHT_DIFFUSE_INTENSITY: f32 = 1.0;
+const ROUGHNESS: f32 = 0.10;
+const F_0: f32 = 0.02; 
 
 struct OceanSettings {
     mesh_size: f32,         
@@ -148,16 +151,46 @@ fn vs_main(
     displaced_pos.z += dz * ocean_settings.chop_scale;
     
     let delta = 0.5;
-    let h_left = sample_height_field(world_x - delta, world_z).x;
-    let h_right = sample_height_field(world_x + delta, world_z).x;
-    let h_down = sample_height_field(world_x, world_z - delta).x;
-    let h_up = sample_height_field(world_x, world_z + delta).x;
     
-    let normal_strength = 2.0;
-    let dx_grad = (h_right - h_left) * normal_strength;
-    let dz_grad = (h_up - h_down) * normal_strength;
+    // Get full samples including chop
+    let sample_left = sample_height_field(world_x - delta, world_z);
+    let sample_right = sample_height_field(world_x + delta, world_z);
+    let sample_down = sample_height_field(world_x, world_z - delta);
+    let sample_up = sample_height_field(world_x, world_z + delta);
     
-    out.normal = normalize(vec3<f32>(-dx_grad, 1.0, -dz_grad));
+    let dz_left = sample_height_field_dz(world_x - delta, world_z).x;
+    let dz_right = sample_height_field_dz(world_x + delta, world_z).x;
+    let dz_down = sample_height_field_dz(world_x, world_z - delta).x;
+    let dz_up = sample_height_field_dz(world_x, world_z + delta).x;
+    
+    // Build displaced positions
+    let pos_left = vec3<f32>(
+        -delta + sample_left.z * ocean_settings.chop_scale,
+        sample_left.x,
+        0.0 + dz_left * ocean_settings.chop_scale
+    );
+    let pos_right = vec3<f32>(
+        delta + sample_right.z * ocean_settings.chop_scale,
+        sample_right.x,
+        0.0 + dz_right * ocean_settings.chop_scale
+    );
+    let pos_down = vec3<f32>(
+        0.0 + sample_down.z * ocean_settings.chop_scale,
+        sample_down.x,
+        -delta + dz_down * ocean_settings.chop_scale
+    );
+    let pos_up = vec3<f32>(
+        0.0 + sample_up.z * ocean_settings.chop_scale,
+        sample_up.x,
+        delta + dz_up * ocean_settings.chop_scale
+    );
+    
+    // Compute tangent and bitangent
+    let tangent = normalize(pos_right - pos_left);
+    let bitangent = normalize(pos_up - pos_down);
+    
+    out.normal = normalize(cross(tangent, bitangent));
+    out.height = h;
     out.tex_coords = model.tex_coords;
     out.world_pos = displaced_pos;
     out.clip_position = camera.view_proj * vec4<f32>(displaced_pos, 1.0);
@@ -165,33 +198,81 @@ fn vs_main(
     return out;
 }
 
-// Time to make Blinn-Phong lighting!!!
+// BPR work in progress
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let base_color = vec3<f32>(0.02, 0.15, 0.22); // deep ocean green blue
-
     let normal = normalize(in.normal);
-
-    // ambient lighting, basically constant light source, provides basic shape details
-    let ambient = vec3<f32>(0.75, 0.85, 1.0) * 0.3;
-
-    // diffuse lighting, dependant on the normal & the light source.
-    let light_source_color = vec3<f32>(1.0, 0.95, 0.85);
-    // direction TO the light source (however, sometimes may be more benefitial to consider the other way)
-    // Bearing 324.6deg, pitch +28.13deg, used chatgpt to get better direction vector
-    let light_source_dir = normalize(vec3<f32>(-0.511, 0.472, -0.718));
-    let diffuse_strength = clamp(dot(light_source_dir, normal), 0.0, 1.0);
-    let diffuse = diffuse_strength * light_source_color;
-
-    // specular lighting, needs normal, ligth source, view direction
+    let light_source_dir = normalize(vec3<f32>(-0.478, 0.469, -0.743));
     let view_dir = normalize(camera.camera_pos - in.world_pos);
-    let reflect_dir = normalize(reflect(-light_source_dir, normal));
-    var specular_strength = max(dot(view_dir, reflect_dir), 0.0);
-    specular_strength = pow(specular_strength, 128.0); // Higher value, bigger glossynessa (idk how to spell)
-    let specular = specular_strength * light_source_color;
+    let reflect_dir = reflect(-view_dir, normal);
+    let half_dir = normalize(light_source_dir + view_dir);
 
-    // Phong = Ambient + Diffuse + Specular
-    // For taking pictures, make separate screenshots with ambient, diffuse & specular turned down to 0
-    let final_color = (base_color * (ambient * 0.3 + diffuse * 0.7)) + (specular * 0.5);
-    return vec4<f32>(final_color, 1.0);
+    let n_dot_light = max(dot(normal, light_source_dir),0.001);
+    let n_dot_view = max(dot(normal, view_dir),0.0001);
+    let n_dot_half = max(dot(normal, half_dir),0.0);
+    let view_dot_half = max(dot(view_dir, half_dir),0.0);
+
+    let k_s = fresnel_func(view_dot_half, F_0);
+    let k_d = 1.0 - k_s;
+
+    let deep_ocean = vec3<f32>(0.01, 0.04, 0.12); 
+    let shallow_water = vec3<f32>(0.05, 0.3, 0.45);
+    
+    let material_color = vec3<f32>(0.01, 0.05, 0.1);
+    let light_color = vec3<f32>(1.0, 0.98, 0.9);
+
+
+    let ambient = vec3<f32>(0.03, 0.04, 0.06) * material_color;
+    let diffuse = diffuse_func(material_color, k_d);
+    let alpha = ROUGHNESS * ROUGHNESS;
+    let specular = cook_torrance(n_dot_light, n_dot_view, n_dot_half, alpha, k_s);
+
+    // Sky
+    let sky_blue = vec3<f32>(0.1, 0.35, 0.7);
+    let horizon_tone = vec3<f32>(0.4, 0.5, 0.6); 
+    let fake_sky = mix(horizon_tone, sky_blue, pow(max(reflect_dir.y, 0.0), 0.6));
+    
+    let reflection = fake_sky * k_s;
+
+    let pbr = (diffuse + vec3<f32>(specular)) * light_color * n_dot_light;
+    var color = pbr + reflection + ambient;
+
+    // Tone mapping
+    let exposure = 0.9;
+    color = vec3<f32>(1.0) - exp(-color * exposure);
+    color = pow(color, vec3<f32>(1.0/2.2));
+
+    return vec4<f32>(color, 1.0);
+}
+
+fn diffuse_func(f_lambert: vec3<f32>, k_d: f32) -> vec3<f32> {
+    return k_d * f_lambert / pi;
+}
+
+fn cook_torrance(n_dot_light: f32, n_dot_view: f32, n_dot_half: f32, alpha: f32, fresnel: f32) -> f32 {
+    let normal_function = normal_func(n_dot_half, alpha);
+    let geometry_function = geometry_func(n_dot_view, n_dot_light, alpha);
+    return (normal_function * geometry_function * fresnel) / max(4 * n_dot_light * n_dot_view, 0.1);
+}
+
+fn normal_func(n_dot_half: f32, alpha: f32) -> f32 {
+    let alpha2 = alpha * alpha;
+    let alpha4 = alpha2 * alpha2;
+    let denom = (n_dot_half * n_dot_half * (alpha2 - 1.0) + 1.0);
+    return alpha2 / (pi * denom * denom);
+}
+
+fn smiths(dot_product: f32, alpha: f32) -> f32 {
+    let k = ((alpha + 1.0) * (alpha + 1.0)) / 8.0;
+    let denom = dot_product * (k - 1.0) + k;
+    return dot_product / denom;
+}
+
+fn geometry_func(n_dot_view: f32, n_dot_light: f32, alpha: f32) -> f32 {
+    return smiths(n_dot_view, alpha) * smiths(n_dot_light, alpha);
+}
+
+fn fresnel_func(view_dot_half: f32, f_0: f32) -> f32 {
+    let scale = pow(1.0 - view_dot_half, 5.0);
+    return f_0 + (1.0 - f_0) * scale;
 }
