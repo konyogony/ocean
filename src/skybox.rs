@@ -32,6 +32,7 @@ pub struct Skybox {
     pub skybox_vertex_buffer: wgpu::Buffer,
     pub skybox_index_buffer: wgpu::Buffer,
     pub num_skybox_indices: u32,
+    pub skybox_texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl Skybox {
@@ -158,6 +159,7 @@ impl Skybox {
             skybox_vertex_buffer,
             skybox_render_pipeline,
             num_skybox_indices,
+            skybox_texture_bind_group_layout,
         })
     }
 }

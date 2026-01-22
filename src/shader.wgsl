@@ -1,15 +1,16 @@
 const g: f32 = 9.81;
 const pi: f32 = 3.14159;
-const LIGHT_DIFFUSE_INTENSITY: f32 = 2.5;
-const ROUGHNESS: f32 = 0.25;
-const F_0: f32 = 0.04; 
-const SPECULAR_SCALE: f32 = 0.4;
+const LIGHT_DIFFUSE_INTENSITY: f32 = 1.0;
+const ROUGHNESS: f32 = 0.2;
+const F_0: f32 = 0.02; 
+const SPECULAR_SCALE: f32 = 0.5;
+const REFLECTION_SCALE: f32 = 0.6;
+const FOAM_SCALE: f32 = 0.8;
 // Sub Surface Scattering 
-const DEEP_COLOR: vec3<f32> = vec3<f32>(0.0, 0.15, 0.25);
-const SHALLOW_COLOR: vec3<f32> = vec3<f32>(0.0, 0.45, 0.55);
-const HORIZON_COLOR: vec3<f32> = vec3<f32>(0.2, 0.3, 0.4);
-const SKY_COLOR: vec3<f32> = vec3<f32>(0.65, 0.8, 0.95);
-const SSS_COLOR: vec3<f32> = vec3<f32>(0.0, 0.5, 0.4);
+const DEEP_COLOR: vec3<f32> = vec3<f32>(0.0, 0.01, 0.05); 
+const SHALLOW_COLOR: vec3<f32> = vec3<f32>(0.0, 0.06, 0.09);
+const SSS_COLOR: vec3<f32> = vec3<f32>(0.0, 0.2, 0.15);
+const SUN_COLOR: vec3<f32> = vec3<f32>(1.0, 0.9, 0.8);
 
 struct OceanSettings {
     mesh_size: f32,         
@@ -65,6 +66,10 @@ struct VertexOutput {
     @location(3) height: f32,  // Pass height to fragment shader
     @location(4) jacobian: f32,
 };
+
+
+@group(3) @binding(0) var t_skybox: texture_cube<f32>;
+@group(3) @binding(1) var s_skybox: sampler;
 
 fn get_fft_index(x: u32, y: u32) -> u32 {
     let ix = x % ocean_settings.fft_subdivisions;
@@ -231,51 +236,52 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let light_source_dir = normalize(vec3<f32>(-0.478, 0.469, -0.743));
     let view_dir = normalize(camera.camera_pos - in.world_pos);
     let reflect_dir = reflect(-view_dir, normal);
+    let reflect_dir_clamp = clamp(reflect_dir, vec3(-1.0), vec3(1.0));
     let half_dir = normalize(light_source_dir + view_dir);
-
 
     let n_dot_light = clamp(dot(normal, light_source_dir), 0.0, 1.0);
     let n_dot_view = clamp(dot(normal, view_dir), 0.001, 1.0);
     let n_dot_half = clamp(dot(normal, half_dir), 0.0, 1.0);
     let view_dot_half = clamp(dot(view_dir, half_dir), 0.0, 1.0);
 
-    let k_s = fresnel_func(view_dot_half, F_0);
-    let k_d = (1.0 - k_s);
+    let fresnel_sky = fresnel_func(n_dot_view, F_0);
+    let fresnel_spec = fresnel_func(view_dot_half, F_0);
 
-    let foam_mask = clamp(1.0 - smoothstep(0.0, 0.5, in.jacobian), 0.0, 1.0);
-    let foam_strength = pow(foam_mask, 1.5);  // Less aggressive power
-    let material_color = mix(DEEP_COLOR, SHALLOW_COLOR, foam_strength);
-    let foam_white = vec3<f32>(0.9, 0.95, 1.0) * pow(foam_mask, 3.0) * 0.6;
+    // Foam using jacobian
+    let foam_mask = clamp(1.0 - smoothstep(0.1, 0.45, in.jacobian), 0.0, 1.0);
+    let water_base = mix(DEEP_COLOR, SHALLOW_COLOR, foam_mask * 0.2);
+    let foam_color = vec3<f32>(0.9);
+    let foam = foam_color * pow(foam_mask, 1.5);
 
-    let diffuse = diffuse_func(material_color, k_d);
+    let sky_reflection = textureSample(t_skybox, s_skybox, reflect_dir).rgb * REFLECTION_SCALE;
 
     let alpha = ROUGHNESS * ROUGHNESS;
-    let specular_val = cook_torrance(n_dot_light, n_dot_view, n_dot_half, alpha, k_s) * SPECULAR_SCALE;
+    let specular_val = cook_torrance(n_dot_light, n_dot_view, n_dot_half, alpha, fresnel_spec);
+    let specular = SUN_COLOR * specular_val * SPECULAR_SCALE;
 
-    let wave_peak_mask = clamp(1.0 - in.jacobian, 0.0, 1.0); 
-
-    let light_color = vec3<f32>(1.0, 0.98, 0.95);
     let ambient = vec3<f32>(0.02, 0.03, 0.04);
 
     // TODO: Research more
-    let sss_look_at = max(0.0, dot(view_dir, -light_source_dir));
-    let wave_tip_mask = pow(clamp(in.height * 0.4 + 0.6, 0.0, 1.0), 4.0);
-    let sss_final = SSS_COLOR * 0.3 * pow(sss_look_at, 2.0) * wave_tip_mask;
+    let sss_factor = max(0.0, dot(view_dir, -light_source_dir));
+    let sss_height_mask = pow(clamp(in.height * 0.3 + 0.5, 0.0, 1.0), 3.0); 
+    let sss = SSS_COLOR * pow(sss_factor, 4.0) * sss_height_mask * 0.3;
 
-    let diffuse_combined = diffuse * light_color * n_dot_light; 
-    let specular_combined = vec3<f32>(specular_val) * light_color;
+    var color = water_base + sss;
+    color = mix(color, sky_reflection, clamp(fresnel_sky, 0.0, 0.9));
+    color += specular;
+    color = mix(color, foam, foam_mask * FOAM_SCALE);
 
-    var color = diffuse_combined + specular_combined + foam_white + sss_final + ambient;
-
+    // Tone mapping 
     color = aces_tone_map(color);
     color = pow(color, vec3<f32>(1.0/2.2));
 
     return vec4<f32>(color, 1.0);
 }
 
-fn diffuse_func(f_lambert: vec3<f32>, k_d: f32) -> vec3<f32> {
-    return k_d * f_lambert / pi;
-}
+// Apparently, water does NOT have diffuse
+// fn diffuse_func(f_lambert: vec3<f32>, k_d: f32) -> vec3<f32> {
+//     return k_d * f_lambert / pi;
+// }
 
 fn cook_torrance(n_dot_light: f32, n_dot_view: f32, n_dot_half: f32, alpha: f32, fresnel: f32) -> f32 {
     let normal_function = normal_func(n_dot_half, alpha);
