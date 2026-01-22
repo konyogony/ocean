@@ -1,8 +1,15 @@
 const g: f32 = 9.81;
 const pi: f32 = 3.14159;
-const LIGHT_DIFFUSE_INTENSITY: f32 = 1.0;
-const ROUGHNESS: f32 = 0.10;
-const F_0: f32 = 0.02; 
+const LIGHT_DIFFUSE_INTENSITY: f32 = 2.5;
+const ROUGHNESS: f32 = 0.25;
+const F_0: f32 = 0.04; 
+const SPECULAR_SCALE: f32 = 0.4;
+// Sub Surface Scattering 
+const DEEP_COLOR: vec3<f32> = vec3<f32>(0.0, 0.15, 0.25);
+const SHALLOW_COLOR: vec3<f32> = vec3<f32>(0.0, 0.45, 0.55);
+const HORIZON_COLOR: vec3<f32> = vec3<f32>(0.2, 0.3, 0.4);
+const SKY_COLOR: vec3<f32> = vec3<f32>(0.65, 0.8, 0.95);
+const SSS_COLOR: vec3<f32> = vec3<f32>(0.0, 0.5, 0.4);
 
 struct OceanSettings {
     mesh_size: f32,         
@@ -55,8 +62,8 @@ struct VertexOutput {
     @location(0) tex_coords: vec2<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) world_pos: vec3<f32>,
-
     @location(3) height: f32,  // Pass height to fragment shader
+    @location(4) jacobian: f32,
 };
 
 fn get_fft_index(x: u32, y: u32) -> u32 {
@@ -70,9 +77,9 @@ fn sample_height_field(world_x: f32, world_z: f32) -> vec4<f32> {
     let fft_size = ocean_settings.fft_size;
     let fft_subdivisions = ocean_settings.fft_subdivisions;
 
-    let fft_u = (world_x / fft_size) + 0.5;
-    let fft_v = (world_z / fft_size) + 0.5;
-    let u = fract(fft_u);
+    let fft_u = (world_x / fft_size); 
+    let fft_v = (world_z / fft_size);
+    let u = fract(fft_u); 
     let v = fract(fft_v);
     
     let texel_x = u * f32(fft_subdivisions);
@@ -83,9 +90,13 @@ fn sample_height_field(world_x: f32, world_z: f32) -> vec4<f32> {
     let y0 = u32(floor(texel_y)) % fft_subdivisions;
     let x1 = (x0 + 1u) % fft_subdivisions;
     let y1 = (y0 + 1u) % fft_subdivisions;
+
+    // For smoother normals
+    let fx_linear = fract(texel_x);
+    let fy_linear = fract(texel_y);
     
-    let fx = fract(texel_x);
-    let fy = fract(texel_y);
+    let fx = fx_linear * fx_linear * (3.0 - 2.0 * fx_linear);
+    let fy = fy_linear * fy_linear * (3.0 - 2.0 * fy_linear);
     
     // Sample four corners
     let h00 = height_field[y0 * fft_subdivisions + x0];
@@ -103,8 +114,8 @@ fn sample_height_field_dz(world_x: f32, world_z: f32) -> vec4<f32> {
     let fft_subdivisions = ocean_settings.fft_subdivisions;
 
     // Same logic for dz buffer
-    let fft_u = (world_x / fft_size) + 0.5;
-    let fft_v = (world_z / fft_size) + 0.5;
+    let fft_u = (world_x / fft_size);
+    let fft_v = (world_z / fft_size);
     let u = fract(fft_u);
     let v = fract(fft_v);
     
@@ -134,23 +145,32 @@ fn vs_main(
     model: VertexInput,
 ) -> VertexOutput {
     var out:  VertexOutput;
+
+    // Flat ocean testing
+    // out.normal = vec3<f32>(0.0,1.0,0.0);
+    // out.height = 5.0;
+    // out.tex_coords = model.tex_coords;
+    // out.world_pos = model.position;
+    // out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
+    // return out;
     
     let world_x = model.position.x;
     let world_z = model.position.z;
+
+    let delta = ocean_settings.fft_size / f32(ocean_settings.fft_subdivisions);
+    let amp = ocean_settings.amplitude_scale;
     
     let h_sample = sample_height_field(world_x, world_z);
     let dz_sample = sample_height_field_dz(world_x, world_z);
     
-    let h = h_sample.x;
-    let dx = h_sample.z;
-    let dz = dz_sample.x;
+    let h = h_sample.x * amp;
+    let dx = h_sample.z * amp;
+    let dz = dz_sample.x * amp;
     
     var displaced_pos = model.position;
     displaced_pos.x += dx * ocean_settings.chop_scale;
     displaced_pos.y += h;
     displaced_pos.z += dz * ocean_settings.chop_scale;
-    
-    let delta = 0.5;
     
     // Get full samples including chop
     let sample_left = sample_height_field(world_x - delta, world_z);
@@ -158,42 +178,47 @@ fn vs_main(
     let sample_down = sample_height_field(world_x, world_z - delta);
     let sample_up = sample_height_field(world_x, world_z + delta);
     
-    let dz_left = sample_height_field_dz(world_x - delta, world_z).x;
-    let dz_right = sample_height_field_dz(world_x + delta, world_z).x;
-    let dz_down = sample_height_field_dz(world_x, world_z - delta).x;
-    let dz_up = sample_height_field_dz(world_x, world_z + delta).x;
+    let dz_left = sample_height_field_dz(world_x - delta, world_z).x * amp;
+    let dz_right = sample_height_field_dz(world_x + delta, world_z).x * amp;
+    let dz_down = sample_height_field_dz(world_x, world_z - delta).x * amp;
+    let dz_up = sample_height_field_dz(world_x, world_z + delta).x * amp;
     
-    // Build displaced positions
-    let pos_left = vec3<f32>(
-        -delta + sample_left.z * ocean_settings.chop_scale,
-        sample_left.x,
-        0.0 + dz_left * ocean_settings.chop_scale
-    );
-    let pos_right = vec3<f32>(
-        delta + sample_right.z * ocean_settings.chop_scale,
-        sample_right.x,
-        0.0 + dz_right * ocean_settings.chop_scale
-    );
-    let pos_down = vec3<f32>(
-        0.0 + sample_down.z * ocean_settings.chop_scale,
-        sample_down.x,
-        -delta + dz_down * ocean_settings.chop_scale
-    );
-    let pos_up = vec3<f32>(
-        0.0 + sample_up.z * ocean_settings.chop_scale,
-        sample_up.x,
-        delta + dz_up * ocean_settings.chop_scale
-    );
-    
+    let h_left = sample_left.x * amp;
+    let h_right = sample_right.x * amp;
+    let h_down = sample_down.x * amp;
+    let h_up = sample_up.x * amp;
+
+    let dx_left = sample_left.z * amp;
+    let dx_right = sample_right.z * amp;
+    let dx_down = sample_down.z * amp;
+    let dx_up = sample_up.z * amp;
+
     // Compute tangent and bitangent
-    let tangent = normalize(pos_right - pos_left);
-    let bitangent = normalize(pos_up - pos_down);
+    let tangent = vec3<f32>(
+        (2.0 * delta) + (dx_right - dx_left) * ocean_settings.chop_scale,
+        h_right - h_left,
+        (dz_right - dz_left) * ocean_settings.chop_scale
+    );
+    let bitangent = vec3<f32>(
+        (dx_up - dx_down) * ocean_settings.chop_scale,
+        h_up - h_down,
+        (2.0 * delta) + (dz_up - dz_down) * ocean_settings.chop_scale
+    );
+
+    // Calculating the jacobian for ocean foam / SSS stuff
+    let dDxdx = (dx_right - dx_left) * ocean_settings.chop_scale / (2.0 * delta);
+    let dDzdz = (dz_up - dz_down) * ocean_settings.chop_scale / (2.0 * delta);
+    let dDxdz = (dx_up - dx_down) * ocean_settings.chop_scale / (2.0 * delta);
+    let dDzdx = (dz_right - dz_left) * ocean_settings.chop_scale / (2.0 * delta);
+    let jacobian = (1.0 + dDxdx) * (1.0 + dDzdz) - (dDxdz * dDzdx);
     
-    out.normal = normalize(cross(tangent, bitangent));
+    // whoopsies
+    out.normal = normalize(cross(bitangent, tangent));
     out.height = h;
     out.tex_coords = model.tex_coords;
     out.world_pos = displaced_pos;
     out.clip_position = camera.view_proj * vec4<f32>(displaced_pos, 1.0);
+    out.jacobian = jacobian;
     
     return out;
 }
@@ -201,45 +226,48 @@ fn vs_main(
 // BPR work in progress
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+
     let normal = normalize(in.normal);
     let light_source_dir = normalize(vec3<f32>(-0.478, 0.469, -0.743));
     let view_dir = normalize(camera.camera_pos - in.world_pos);
     let reflect_dir = reflect(-view_dir, normal);
     let half_dir = normalize(light_source_dir + view_dir);
 
-    let n_dot_light = max(dot(normal, light_source_dir),0.001);
-    let n_dot_view = max(dot(normal, view_dir),0.0001);
-    let n_dot_half = max(dot(normal, half_dir),0.0);
-    let view_dot_half = max(dot(view_dir, half_dir),0.0);
+
+    let n_dot_light = clamp(dot(normal, light_source_dir), 0.0, 1.0);
+    let n_dot_view = clamp(dot(normal, view_dir), 0.001, 1.0);
+    let n_dot_half = clamp(dot(normal, half_dir), 0.0, 1.0);
+    let view_dot_half = clamp(dot(view_dir, half_dir), 0.0, 1.0);
 
     let k_s = fresnel_func(view_dot_half, F_0);
-    let k_d = 1.0 - k_s;
+    let k_d = (1.0 - k_s);
 
-    let deep_ocean = vec3<f32>(0.01, 0.04, 0.12); 
-    let shallow_water = vec3<f32>(0.05, 0.3, 0.45);
-    
-    let material_color = vec3<f32>(0.01, 0.05, 0.1);
-    let light_color = vec3<f32>(1.0, 0.98, 0.9);
+    let foam_mask = clamp(1.0 - smoothstep(0.0, 0.5, in.jacobian), 0.0, 1.0);
+    let foam_strength = pow(foam_mask, 1.5);  // Less aggressive power
+    let material_color = mix(DEEP_COLOR, SHALLOW_COLOR, foam_strength);
+    let foam_white = vec3<f32>(0.9, 0.95, 1.0) * pow(foam_mask, 3.0) * 0.6;
 
-
-    let ambient = vec3<f32>(0.03, 0.04, 0.06) * material_color;
     let diffuse = diffuse_func(material_color, k_d);
+
     let alpha = ROUGHNESS * ROUGHNESS;
-    let specular = cook_torrance(n_dot_light, n_dot_view, n_dot_half, alpha, k_s);
+    let specular_val = cook_torrance(n_dot_light, n_dot_view, n_dot_half, alpha, k_s) * SPECULAR_SCALE;
 
-    // Sky
-    let sky_blue = vec3<f32>(0.1, 0.35, 0.7);
-    let horizon_tone = vec3<f32>(0.4, 0.5, 0.6); 
-    let fake_sky = mix(horizon_tone, sky_blue, pow(max(reflect_dir.y, 0.0), 0.6));
-    
-    let reflection = fake_sky * k_s;
+    let wave_peak_mask = clamp(1.0 - in.jacobian, 0.0, 1.0); 
 
-    let pbr = (diffuse + vec3<f32>(specular)) * light_color * n_dot_light;
-    var color = pbr + reflection + ambient;
+    let light_color = vec3<f32>(1.0, 0.98, 0.95);
+    let ambient = vec3<f32>(0.02, 0.03, 0.04);
 
-    // Tone mapping
-    let exposure = 0.9;
-    color = vec3<f32>(1.0) - exp(-color * exposure);
+    // TODO: Research more
+    let sss_look_at = max(0.0, dot(view_dir, -light_source_dir));
+    let wave_tip_mask = pow(clamp(in.height * 0.4 + 0.6, 0.0, 1.0), 4.0);
+    let sss_final = SSS_COLOR * 0.3 * pow(sss_look_at, 2.0) * wave_tip_mask;
+
+    let diffuse_combined = diffuse * light_color * n_dot_light; 
+    let specular_combined = vec3<f32>(specular_val) * light_color;
+
+    var color = diffuse_combined + specular_combined + foam_white + sss_final + ambient;
+
+    color = aces_tone_map(color);
     color = pow(color, vec3<f32>(1.0/2.2));
 
     return vec4<f32>(color, 1.0);
@@ -252,7 +280,7 @@ fn diffuse_func(f_lambert: vec3<f32>, k_d: f32) -> vec3<f32> {
 fn cook_torrance(n_dot_light: f32, n_dot_view: f32, n_dot_half: f32, alpha: f32, fresnel: f32) -> f32 {
     let normal_function = normal_func(n_dot_half, alpha);
     let geometry_function = geometry_func(n_dot_view, n_dot_light, alpha);
-    return (normal_function * geometry_function * fresnel) / max(4 * n_dot_light * n_dot_view, 0.1);
+    return (normal_function * geometry_function * fresnel) / (4.0 * n_dot_light * n_dot_view + 1e-4);
 }
 
 fn normal_func(n_dot_half: f32, alpha: f32) -> f32 {
@@ -264,8 +292,8 @@ fn normal_func(n_dot_half: f32, alpha: f32) -> f32 {
 
 fn smiths(dot_product: f32, alpha: f32) -> f32 {
     let k = ((alpha + 1.0) * (alpha + 1.0)) / 8.0;
-    let denom = dot_product * (k - 1.0) + k;
-    return dot_product / denom;
+    let denom = dot_product * (1.0 - k) + k;
+    return dot_product / (denom + 1e-6);
 }
 
 fn geometry_func(n_dot_view: f32, n_dot_light: f32, alpha: f32) -> f32 {
@@ -275,4 +303,14 @@ fn geometry_func(n_dot_view: f32, n_dot_light: f32, alpha: f32) -> f32 {
 fn fresnel_func(view_dot_half: f32, f_0: f32) -> f32 {
     let scale = pow(1.0 - view_dot_half, 5.0);
     return f_0 + (1.0 - f_0) * scale;
+}
+
+// HELP
+fn aces_tone_map(color: vec3<f32>) -> vec3<f32> {
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
 }
