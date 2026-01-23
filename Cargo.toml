@@ -1,6 +1,6 @@
 [package]
 name = "ocean"
-description = "Converting to a more realistic approach"
+description = "PBR + SSS + Foam + Lighting..."
 version = "0.1.7"
 edition = "2021"
 

@@ -20,6 +20,16 @@ struct OceanSettings {
     cam_speed: f32,         
     cam_boost: f32,         
     cam_sensitivity: f32,   
+    roughness: f32,
+    f_0: f32,
+    specular_scale: f32,
+    reflection_scale: f32,
+    foam_scale: f32,
+    sss_distortion_scale: f32,
+    deep_color: vec4<f32>,
+    shallow_color: vec4<f32>,
+    sss_color: vec4<f32>,
+    sun_color: vec4<f32>
 }
 
 @group(0) @binding(0)

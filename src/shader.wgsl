@@ -1,16 +1,6 @@
 const g: f32 = 9.81;
 const pi: f32 = 3.14159;
-const LIGHT_DIFFUSE_INTENSITY: f32 = 1.0;
-const ROUGHNESS: f32 = 0.2;
-const F_0: f32 = 0.02; 
-const SPECULAR_SCALE: f32 = 0.5;
-const REFLECTION_SCALE: f32 = 0.6;
-const FOAM_SCALE: f32 = 0.8;
-// Sub Surface Scattering 
-const DEEP_COLOR: vec3<f32> = vec3<f32>(0.0, 0.01, 0.05); 
-const SHALLOW_COLOR: vec3<f32> = vec3<f32>(0.0, 0.06, 0.09);
-const SSS_COLOR: vec3<f32> = vec3<f32>(0.0, 0.2, 0.15);
-const SUN_COLOR: vec3<f32> = vec3<f32>(1.0, 0.9, 0.8);
+
 
 struct OceanSettings {
     mesh_size: f32,         
@@ -31,6 +21,16 @@ struct OceanSettings {
     cam_speed: f32,         
     cam_boost: f32,         
     cam_sensitivity: f32,   
+    roughness: f32,
+    f_0: f32,
+    specular_scale: f32,
+    reflection_scale: f32,
+    foam_scale: f32,
+    sss_distortion_scale: f32,
+    deep_color: vec4<f32>,
+    shallow_color: vec4<f32>,
+    sss_color: vec4<f32>,
+    sun_color: vec4<f32>
 }
 
 @group(0) @binding(0)
@@ -71,10 +71,44 @@ struct VertexOutput {
 @group(3) @binding(0) var t_skybox: texture_cube<f32>;
 @group(3) @binding(1) var s_skybox: sampler;
 
-fn get_fft_index(x: u32, y: u32) -> u32 {
-    let ix = x % ocean_settings.fft_subdivisions;
-    let iy = y % ocean_settings.fft_subdivisions;
-    return iy * ocean_settings.fft_subdivisions + ix;
+// To get cooler foam
+fn hash21(p: vec2<f32>) -> f32 {
+    var p3 = fract(vec3(p.xyx) * .1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+fn noise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash21(i + vec2(0.0, 0.0)), 
+                   hash21(i + vec2(1.0, 0.0)), u.x),
+               mix(hash21(i + vec2(0.0, 1.0)), 
+                   hash21(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+fn fbm(p: vec2<f32>) -> f32 {
+    var value: f32 = 0.0;
+    var amplitude: f32 = 0.5;
+    var current_p = p;
+    for (var i = 0u; i < 3u; i++) {
+        var n = abs(noise(current_p) * 2.0 - 1.0);
+        n = 1.0 - n;
+        n = n * n;
+        value += n * amplitude;
+        current_p *= 2.5; // Higher lacunarity for finer details
+        amplitude *= 0.5;
+    }
+    return value;
+}
+
+fn get_noise_normal(pos: vec2<f32>, strength: f32) -> vec3<f32> {
+    let eps = 0.1;
+    let n = fbm(pos);
+    let dx = fbm(pos + vec2(eps, 0.0)) - n;
+    let dz = fbm(pos + vec2(0.0, eps)) - n;
+    return normalize(vec3<f32>(-dx * strength, 1.0, -dz * strength));
 }
 
 // Billinear sampling... 
@@ -231,45 +265,65 @@ fn vs_main(
 // BPR work in progress
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-
-    let normal = normalize(in.normal);
+//     for debugging jacobian
+//     var debug_color = vec3<f32>(in.jacobian);
+//     return vec4<f32>(debug_color, 1.0);
+    let normal_correct = normalize(in.normal);
     let light_source_dir = normalize(vec3<f32>(-0.478, 0.469, -0.743));
     let view_dir = normalize(camera.camera_pos - in.world_pos);
-    let reflect_dir = reflect(-view_dir, normal);
-    let reflect_dir_clamp = clamp(reflect_dir, vec3(-1.0), vec3(1.0));
+    let reflect_dir = reflect(-view_dir, normal_correct);
     let half_dir = normalize(light_source_dir + view_dir);
+
+    let micro_uv = (in.world_pos.xz * 2.0) + ocean_settings.wind_vector * ocean_settings.time_scale * 0.15;
+    let micro_normal = get_noise_normal(micro_uv, 0.5);
+
+    let dist = length(camera.camera_pos - in.world_pos);
+    let detail_fade = 1.0 - smoothstep(50.0, 500.0, dist);
+    let blended_normal = normalize(mix(in.normal, micro_normal, detail_fade * 0.3));
+
+    let normal = blended_normal;
 
     let n_dot_light = clamp(dot(normal, light_source_dir), 0.0, 1.0);
     let n_dot_view = clamp(dot(normal, view_dir), 0.001, 1.0);
     let n_dot_half = clamp(dot(normal, half_dir), 0.0, 1.0);
     let view_dot_half = clamp(dot(view_dir, half_dir), 0.0, 1.0);
 
-    let fresnel_sky = fresnel_func(n_dot_view, F_0);
-    let fresnel_spec = fresnel_func(view_dot_half, F_0);
+    let trans_light_dir = normalize(light_source_dir + normal * ocean_settings.sss_distortion_scale);
+    let trans_dot = max(dot(view_dir, -trans_light_dir), 0.0);
+
+    let sss_mask = smoothstep(0.0, 1.0, in.height * 0.5 + 0.5);
+    let sss_strength = pow(trans_dot, 4.0) * sss_mask * 2.0; 
+    let sss = ocean_settings.sss_color.rgb * sss_strength;
+
+    let fresnel_sky = fresnel_func(n_dot_view, ocean_settings.f_0);
+    let fresnel_spec = fresnel_func(view_dot_half, ocean_settings.f_0);
 
     // Foam using jacobian
-    let foam_mask = clamp(1.0 - smoothstep(0.1, 0.45, in.jacobian), 0.0, 1.0);
-    let water_base = mix(DEEP_COLOR, SHALLOW_COLOR, foam_mask * 0.2);
-    let foam_color = vec3<f32>(0.9);
-    let foam = foam_color * pow(foam_mask, 1.5);
+    let jacobian_mask = 1.0 - clamp(in.jacobian, 0.0, 1.0);
+    let height_mask = smoothstep(-0.3, 0.5, in.height);
+    let foam_uv = (in.world_pos.xz * 0.5) + ocean_settings.wind_vector * ocean_settings.time_scale * 0.05;
+    let foam_texture = fbm(foam_uv);
+    let foam_threshold = 0.5 - (foam_texture * 0.4); 
+    let foam_factor = smoothstep(foam_threshold, foam_threshold + 0.1, jacobian_mask) * height_mask * ocean_settings.foam_scale;
 
-    let sky_reflection = textureSample(t_skybox, s_skybox, reflect_dir).rgb * REFLECTION_SCALE;
+    let water_base = mix(ocean_settings.deep_color.rgb, ocean_settings.shallow_color.rgb, smoothstep(-2.0, 3.0, in.height));
 
-    let alpha = ROUGHNESS * ROUGHNESS;
+    let reflection_dampener = smoothstep(0.5, 1.0, in.jacobian);
+    let sky_reflection = textureSample(t_skybox, s_skybox, reflect_dir).rgb * ocean_settings.reflection_scale * reflection_dampener * (1.0 - foam_factor);
+
+    let rougness_dynamic = mix(ocean_settings.roughness, 0.6, foam_factor);
+    let alpha = rougness_dynamic * rougness_dynamic;
     let specular_val = cook_torrance(n_dot_light, n_dot_view, n_dot_half, alpha, fresnel_spec);
-    let specular = SUN_COLOR * specular_val * SPECULAR_SCALE;
+    let specular = ocean_settings.sun_color.rgb * specular_val * ocean_settings.specular_scale * reflection_dampener * (1.0-foam_factor); // cause foam blocks the reflections yk
 
     let ambient = vec3<f32>(0.02, 0.03, 0.04);
 
-    // TODO: Research more
-    let sss_factor = max(0.0, dot(view_dir, -light_source_dir));
-    let sss_height_mask = pow(clamp(in.height * 0.3 + 0.5, 0.0, 1.0), 3.0); 
-    let sss = SSS_COLOR * pow(sss_factor, 4.0) * sss_height_mask * 0.3;
-
     var color = water_base + sss;
-    color = mix(color, sky_reflection, clamp(fresnel_sky, 0.0, 0.9));
+
+    color = mix(color, sky_reflection, clamp(fresnel_sky, 0.0, 1.0));
     color += specular;
-    color = mix(color, foam, foam_mask * FOAM_SCALE);
+    let foam_color = vec3<f32>(0.95, 0.98, 0.92); 
+    color = mix(color, foam_color, clamp(foam_factor, 0.0, 1.0));
 
     // Tone mapping 
     color = aces_tone_map(color);
@@ -277,11 +331,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     return vec4<f32>(color, 1.0);
 }
-
-// Apparently, water does NOT have diffuse
-// fn diffuse_func(f_lambert: vec3<f32>, k_d: f32) -> vec3<f32> {
-//     return k_d * f_lambert / pi;
-// }
 
 fn cook_torrance(n_dot_light: f32, n_dot_view: f32, n_dot_half: f32, alpha: f32, fresnel: f32) -> f32 {
     let normal_function = normal_func(n_dot_half, alpha);

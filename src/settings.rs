@@ -4,22 +4,33 @@ pub struct OceanSettings {
     pub mesh_size: f32,         // 1024.0
     pub mesh_subdivisions: u32, // 2048
     pub fft_size: f32,          // 1024.0
-    pub fft_subdivisions: u32,  // 1024
+    pub fft_subdivisions: u32,  // 32
     pub pass_num: u32,          // log2(fft_subdivisions)
     pub time_scale: f32,        // 10.0
-    pub chop_scale: f32,        // 2.5
+    pub chop_scale: f32,        // 1.25
     pub amplitude_scale: f32,   // 1.0
     pub wave_scale: f32,        // mesh_size / fft_size
-    pub wind_vector: [f32; 2],  // (30.0, 20.0)
-    pub amplitude: f32,         // 10.0
-    pub l_small: f32,           // 0.001
-    pub max_w: f32,             // 100.0
-    pub fovy: f32,              // 60.0
-    pub zfar: f32,              // 1500.0
-    pub cam_speed: f32,         // 0.5
-    pub cam_boost: f32,         // 5.0
-    pub cam_sensitivity: f32,   // 0.002
-    pub _padding: f32,
+    pub _pad0: f32,
+    pub wind_vector: [f32; 2],     // (10.0, 10.0)
+    pub amplitude: f32,            // 0.6
+    pub l_small: f32,              // 0.001
+    pub max_w: f32,                // 1000.0
+    pub fovy: f32,                 // 60.0
+    pub zfar: f32,                 // 1500.0
+    pub cam_speed: f32,            // 0.5
+    pub cam_boost: f32,            // 5.0
+    pub cam_sensitivity: f32,      // 0.002
+    pub roughness: f32,            // 0.05
+    pub f_0: f32,                  // 0.02
+    pub specular_scale: f32,       // 0.5
+    pub reflection_scale: f32,     // 0.6
+    pub foam_scale: f32,           // 0.8
+    pub sss_distortion_scale: f32, // 0.02
+    pub _pad1: [f32; 2],
+    pub deep_color: [f32; 4],    // vec3<f32>(0.0, 0.01, 0.05)
+    pub shallow_color: [f32; 4], // vec3<f32>(0.0, 0.06, 0.09)
+    pub sss_color: [f32; 4],     // vec3<f32>(0.0, 0.2, 0.15)
+    pub sun_color: [f32; 4],     // vec3<f32>(1.0, 0.9, 0.8)
 }
 
 pub struct OceanSettingsBuilder {
@@ -39,6 +50,16 @@ pub struct OceanSettingsBuilder {
     cam_speed: f32,
     cam_boost: f32,
     cam_sensitivity: f32,
+    roughness: f32,
+    f_0: f32,
+    specular_scale: f32,
+    reflection_scale: f32,
+    foam_scale: f32,
+    sss_distortion_scale: f32,
+    deep_color: [f32; 4],
+    shallow_color: [f32; 4],
+    sss_color: [f32; 4],
+    sun_color: [f32; 4],
 }
 
 impl Default for OceanSettingsBuilder {
@@ -47,19 +68,29 @@ impl Default for OceanSettingsBuilder {
             mesh_size: 1000.0,
             mesh_subdivisions: 2048,
             fft_size: 1000.0,
-            fft_subdivisions: 128,
+            fft_subdivisions: 64, // Lower number, greater details (like zooming in)
             time_scale: 1.5,
-            chop_scale: 0.75,
+            chop_scale: 1.25,
             amplitude_scale: 1.0,
-            wind_vector: [31.0, -21.0],
-            amplitude: 0.6,
-            l_small: 0.001,
-            max_w: 100000.0,
+            wind_vector: [6.0, -8.0],
+            amplitude: 0.1,
+            l_small: 0.1,
+            max_w: 10.0,
             fovy: 60.0,
             zfar: 1500.0,
             cam_speed: 0.05,
             cam_boost: 5.0,
             cam_sensitivity: 0.002,
+            roughness: 0.2,
+            f_0: 0.02,
+            specular_scale: 1.0,
+            reflection_scale: 0.2,
+            foam_scale: 4.0,
+            sss_distortion_scale: 0.2,
+            deep_color: [0.0, 0.01, 0.05, 1.0],
+            shallow_color: [0.0, 0.06, 0.09, 1.0],
+            sss_color: [0.0, 0.4, 0.3, 1.0],
+            sun_color: [1.0, 0.9, 0.8, 1.0],
         }
     }
 }
@@ -69,7 +100,6 @@ impl OceanSettingsBuilder {
         self.mesh_size = v;
         self
     }
-
     pub fn mesh_subdivisions(mut self, v: u32) -> Self {
         self.mesh_subdivisions = v;
         self
@@ -145,6 +175,56 @@ impl OceanSettingsBuilder {
         self
     }
 
+    pub fn roughness(mut self, v: f32) -> Self {
+        self.roughness = v;
+        self
+    }
+
+    pub fn f_0(mut self, v: f32) -> Self {
+        self.f_0 = v;
+        self
+    }
+
+    pub fn specular_scale(mut self, v: f32) -> Self {
+        self.specular_scale = v;
+        self
+    }
+
+    pub fn reflection_scale(mut self, v: f32) -> Self {
+        self.reflection_scale = v;
+        self
+    }
+
+    pub fn foam_scale(mut self, v: f32) -> Self {
+        self.foam_scale = v;
+        self
+    }
+
+    pub fn sss_distortion_scale(mut self, v: f32) -> Self {
+        self.sss_distortion_scale = v;
+        self
+    }
+
+    pub fn deep_color(mut self, v: [f32; 4]) -> Self {
+        self.deep_color = v;
+        self
+    }
+
+    pub fn shallow_color(mut self, v: [f32; 4]) -> Self {
+        self.shallow_color = v;
+        self
+    }
+
+    pub fn sss_color(mut self, v: [f32; 4]) -> Self {
+        self.sss_color = v;
+        self
+    }
+
+    pub fn sun_color(mut self, v: [f32; 4]) -> Self {
+        self.sun_color = v;
+        self
+    }
+
     pub fn build(self) -> OceanSettings {
         assert!(self.fft_subdivisions.is_power_of_two());
         assert!(self.fft_size > 0.0);
@@ -172,7 +252,18 @@ impl OceanSettingsBuilder {
             cam_speed: self.cam_speed,
             cam_boost: self.cam_boost,
             cam_sensitivity: self.cam_sensitivity,
-            _padding: 0.0,
+            roughness: self.roughness,
+            f_0: self.f_0,
+            specular_scale: self.specular_scale,
+            reflection_scale: self.reflection_scale,
+            foam_scale: self.foam_scale,
+            sss_distortion_scale: self.sss_distortion_scale,
+            deep_color: self.deep_color,
+            shallow_color: self.shallow_color,
+            sss_color: self.sss_color,
+            sun_color: self.sun_color,
+            _pad0: 0.0,
+            _pad1: [0.0; 2],
         }
     }
 }
