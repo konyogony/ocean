@@ -269,7 +269,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 //     var debug_color = vec3<f32>(in.jacobian);
 //     return vec4<f32>(debug_color, 1.0);
     let normal_correct = normalize(in.normal);
-    let light_source_dir = normalize(vec3<f32>(-0.478, 0.469, -0.743));
+    let light_source_dir = normalize(vec3(-0.506, 0.471, -0.722));
     let view_dir = normalize(camera.camera_pos - in.world_pos);
     let reflect_dir = reflect(-view_dir, normal_correct);
     let half_dir = normalize(light_source_dir + view_dir);

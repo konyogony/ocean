@@ -16,23 +16,6 @@ use wgpu_text::glyph_brush::{BuiltInLineBreaker, HorizontalAlign, VerticalAlign}
 use winit::event::ElementState;
 use winit::window::Window;
 
-macro_rules! settings_slider_ui {
-    ($ui:expr, $label:expr, $value:expr, $range:expr, $default:expr, $changed:expr) => {{
-        $ui.horizontal(|ui| {
-            if ui
-                .add(egui::Slider::new($value, $range).text($label))
-                .changed()
-            {
-                $changed = true;
-            }
-            if ui.small_button("⟲").clicked() {
-                *$value = $default;
-                $changed = true;
-            }
-        });
-    }};
-}
-
 // TODO: Figure out if this time unfiorm is correct/needed
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -55,70 +38,71 @@ pub struct FFTUniform {
 }
 
 pub struct State {
-    surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    surface_config: wgpu::SurfaceConfiguration,
-    is_surface_configured: bool,
+    pub surface: wgpu::Surface<'static>,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub surface_config: wgpu::SurfaceConfiguration,
+    pub is_surface_configured: bool,
 
-    render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    num_indices: u32,
-    index_buffer: wgpu::Buffer,
-    camera: Camera,
-    camera_uniform: CameraUniform,
-    camera_buffer: wgpu::Buffer,
-    camera_bind_group: wgpu::BindGroup,
-    camera_controller: CameraController,
+    pub render_pipeline: wgpu::RenderPipeline,
+    pub vertex_buffer: wgpu::Buffer,
+    pub num_indices: u32,
+    pub index_buffer: wgpu::Buffer,
+    pub camera: Camera,
+    pub camera_uniform: CameraUniform,
+    pub camera_buffer: wgpu::Buffer,
+    pub camera_bind_group: wgpu::BindGroup,
+    pub camera_controller: CameraController,
 
-    text_brush: wgpu_text::TextBrush,
+    pub text_brush: wgpu_text::TextBrush,
 
-    depth_texture: Texture,
-    skybox: Skybox,
+    pub depth_texture: Texture,
+    pub skybox: Skybox,
 
-    time_uniform: TimeUniform,
-    time_buffer: wgpu::Buffer,
-    last_frame_time_instant: Instant,
-    fps: f32,
-    frame_counter: u32,
-    fps_timer: f32,
-    max_magnitude: f32,
-    avg_magnitude: f32,
-    gpu_name: String,
-    cpu_name: String,
-    kernel_version: String,
-    os_name: String,
-    sys: sysinfo::System,
+    pub time_uniform: TimeUniform,
+    pub time_buffer: wgpu::Buffer,
+    pub last_frame_time_instant: Instant,
+    pub fps: f32,
+    pub frame_counter: u32,
+    pub fps_timer: f32,
+    pub max_magnitude: f32,
+    pub avg_magnitude: f32,
+    pub gpu_name: String,
+    pub cpu_name: String,
+    pub kernel_version: String,
+    pub os_name: String,
+    pub sys: sysinfo::System,
 
-    fft_buffer_a: wgpu::Buffer,
-    fft_buffer_b: wgpu::Buffer,
-    fft_buffer_a_dz: wgpu::Buffer,
-    fft_buffer_b_dz: wgpu::Buffer,
+    pub fft_buffer_a: wgpu::Buffer,
+    pub fft_buffer_b: wgpu::Buffer,
+    pub fft_buffer_a_dz: wgpu::Buffer,
+    pub fft_buffer_b_dz: wgpu::Buffer,
     // Now we need a vector of them so they dont overwrite each other.
-    fft_bind_groups_a: Vec<wgpu::BindGroup>,
-    fft_bind_groups_b: Vec<wgpu::BindGroup>,
-    fft_compute_pipeline: wgpu::ComputePipeline,
-    fft_uniform_buffer: wgpu::Buffer,
-    spectrum_pipeline: wgpu::ComputePipeline,
-    height_field_bind_group: wgpu::BindGroup,
+    pub fft_bind_groups_a: Vec<wgpu::BindGroup>,
+    pub fft_bind_groups_b: Vec<wgpu::BindGroup>,
+    pub fft_compute_pipeline: wgpu::ComputePipeline,
+    pub fft_uniform_buffer: wgpu::Buffer,
+    pub spectrum_pipeline: wgpu::ComputePipeline,
+    pub height_field_bind_group: wgpu::BindGroup,
 
-    fft_min: f32,
-    fft_max: f32,
-    fft_avg: f32,
-    fft_samples_checked: u32,
+    pub fft_min: f32,
+    pub fft_max: f32,
+    pub fft_avg: f32,
+    pub fft_samples_checked: u32,
 
-    time_bind_group: wgpu::BindGroup,
-    initial_data_group: wgpu::BindGroup,
+    pub time_bind_group: wgpu::BindGroup,
+    pub initial_data_group: wgpu::BindGroup,
 
-    ocean_settings: OceanSettings,
-    ocean_settings_buffer: wgpu::Buffer,
-    ocean_settings_bind_group: wgpu::BindGroup,
+    pub ocean_settings: OceanSettings,
+    pub ocean_settings_buffer: wgpu::Buffer,
+    pub ocean_settings_bind_group: wgpu::BindGroup,
 
-    egui_state: egui_winit::State,
-    egui_renderer: egui_wgpu::Renderer,
-    show_setting_ui: bool,
-    draft_settings: OceanSettings,
-    settings_changed: bool,
+    pub egui_state: egui_winit::State,
+    pub egui_renderer: egui_wgpu::Renderer,
+    pub show_setting_ui: bool,
+    pub show_debug_text: bool,
+    pub draft_settings: OceanSettings,
+    pub settings_changed: bool,
 
     // For some apparent reason I read that this HAS to be at the bottom (not fact checked)
     pub window: Arc<Window>,
@@ -836,96 +820,10 @@ impl State {
             egui_state,
             egui_renderer,
             show_setting_ui: false,
+            show_debug_text: true,
             draft_settings: ocean_settings,
             settings_changed: false,
         })
-    }
-
-    pub fn compute_fft(&mut self) {
-        // First create the encoder
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("FFT Multi-Pass Encoder"),
-            });
-        {
-            let mut pass = encoder.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&self.spectrum_pipeline);
-            pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
-            pass.set_bind_group(1, &self.fft_bind_groups_b[0], &[]); // Buffer A will have it.
-            pass.set_bind_group(2, &self.time_bind_group, &[]);
-            pass.set_bind_group(3, &self.initial_data_group, &[]);
-            pass.dispatch_workgroups(
-                &self.ocean_settings.fft_subdivisions / 16,
-                &self.ocean_settings.fft_subdivisions / 16,
-                1,
-            );
-        }
-
-        let mut read_from_a = true;
-
-        for i in 0..(self.ocean_settings.pass_num * 2) as usize {
-            let mut pass = encoder.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&self.fft_compute_pipeline);
-
-            let bind_group = if read_from_a {
-                &self.fft_bind_groups_a[i]
-            } else {
-                &self.fft_bind_groups_b[i]
-            };
-
-            pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
-            pass.set_bind_group(1, bind_group, &[]);
-            pass.set_bind_group(2, &self.time_bind_group, &[]);
-            pass.set_bind_group(3, &self.initial_data_group, &[]);
-            pass.dispatch_workgroups(
-                &self.ocean_settings.fft_subdivisions / 16,
-                &self.ocean_settings.fft_subdivisions / 16,
-                1,
-            );
-
-            read_from_a = !read_from_a;
-        }
-
-        // Super smart to copy it to a anyway
-        if !read_from_a {
-            println!("Copying B → A");
-            encoder.copy_buffer_to_buffer(
-                &self.fft_buffer_b,
-                0,
-                &self.fft_buffer_a,
-                0,
-                (&self.ocean_settings.fft_subdivisions.pow(2) * 16) as u64,
-            );
-
-            encoder.copy_buffer_to_buffer(
-                &self.fft_buffer_b_dz,
-                0,
-                &self.fft_buffer_a_dz,
-                0,
-                (&self.ocean_settings.fft_subdivisions.pow(2) * 16) as u64,
-            );
-        }
-
-        self.queue.submit(std::iter::once(encoder.finish()));
-    }
-
-    pub fn debug_fft_values_sync(&mut self) {
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("FFT Debug Staging"),
-            size: 4096 * 16,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        encoder.copy_buffer_to_buffer(&self.fft_buffer_a, 0, &staging_buffer, 0, 4096 * 16);
-        self.queue.submit(Some(encoder.finish()));
-
-        self.fft_min = -self.max_magnitude;
-        self.fft_max = self.max_magnitude;
-        self.fft_avg = self.avg_magnitude;
-        self.fft_samples_checked = 4096;
     }
 
     pub fn get_debug_text(&mut self) -> String {
@@ -1057,11 +955,17 @@ impl State {
 
         match window_event {
             winit::event::WindowEvent::KeyboardInput { event, .. } => match event.physical_key {
-                winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::F3)
+                winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::F4)
                     if event.state == ElementState::Pressed =>
                 {
                     self.show_setting_ui = !self.show_setting_ui;
                     self.update_cursor_mode();
+                    true
+                }
+                winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::F3)
+                    if event.state == ElementState::Pressed =>
+                {
+                    self.show_debug_text = !self.show_debug_text;
                     true
                 }
                 _ => {
@@ -1112,152 +1016,6 @@ impl State {
             bytemuck::cast_slice(&[self.time_uniform]),
         );
         self.compute_fft();
-    }
-
-    fn update_cursor_mode(&mut self) {
-        if self.show_setting_ui {
-            self.window.set_cursor_visible(true);
-            self.window
-                .set_cursor_grab(winit::window::CursorGrabMode::None)
-                .ok();
-        } else {
-            self.window.set_cursor_visible(false);
-            if self
-                .window
-                .set_cursor_grab(winit::window::CursorGrabMode::Locked)
-                .is_err()
-            {
-                self.window
-                    .set_cursor_grab(winit::window::CursorGrabMode::Confined)
-                    .ok();
-            }
-        }
-    }
-
-    pub fn render_settings_ui(&mut self, context: &egui::Context) {
-        let defaults = OceanSettingsBuilder::default().build();
-
-        egui::Window::new("Ocean Settings")
-            .collapsible(true)
-            .resizable(true)
-            .default_width(400.0)
-            .anchor(egui::Align2::RIGHT_TOP, [-10.0, 10.0])
-            .show(context, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.heading("Wave Parameters");
-
-                    settings_slider_ui!(
-                        ui,
-                        "Time Scale",
-                        &mut self.draft_settings.time_scale,
-                        0.1..=20.0,
-                        defaults.time_scale,
-                        self.settings_changed
-                    );
-
-                    settings_slider_ui!(
-                        ui,
-                        "Amplitude",
-                        &mut self.draft_settings.amplitude,
-                        0.0..=50.0,
-                        defaults.amplitude,
-                        self.settings_changed
-                    );
-
-                    settings_slider_ui!(
-                        ui,
-                        "Chop Scale",
-                        &mut self.draft_settings.chop_scale,
-                        0.0..=10.0,
-                        defaults.chop_scale,
-                        self.settings_changed
-                    );
-
-                    ui.separator();
-                    ui.heading("Wind");
-
-                    settings_slider_ui!(
-                        ui,
-                        "Wind X",
-                        &mut self.draft_settings.wind_vector[0],
-                        -50.0..=50.0,
-                        defaults.wind_vector[0],
-                        self.settings_changed
-                    );
-
-                    settings_slider_ui!(
-                        ui,
-                        "Wind Y",
-                        &mut self.draft_settings.wind_vector[1],
-                        -50.0..=50.0,
-                        defaults.wind_vector[1],
-                        self.settings_changed
-                    );
-
-                    ui.separator();
-                    ui.heading("Camera");
-
-                    settings_slider_ui!(
-                        ui,
-                        "FOV",
-                        &mut self.draft_settings.fovy,
-                        30.0..=120.0,
-                        defaults.fovy,
-                        self.settings_changed
-                    );
-
-                    settings_slider_ui!(
-                        ui,
-                        "Camera Speed",
-                        &mut self.draft_settings.cam_speed,
-                        1.0..=100.0,
-                        defaults.cam_speed,
-                        self.settings_changed
-                    );
-
-                    settings_slider_ui!(
-                        ui,
-                        "Mouse Sensitivity",
-                        &mut self.draft_settings.cam_sensitivity,
-                        0.1..=5.0,
-                        defaults.cam_sensitivity,
-                        self.settings_changed
-                    );
-
-                    ui.separator();
-                    ui.heading("Rendering");
-
-                    settings_slider_ui!(
-                        ui,
-                        "Far Plane",
-                        &mut self.draft_settings.zfar,
-                        100.0..=10_000.0,
-                        defaults.zfar,
-                        self.settings_changed
-                    );
-
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(self.settings_changed, egui::Button::new("Save"))
-                            .clicked()
-                        {
-                            self.ocean_settings = self.draft_settings;
-                            self.queue.write_buffer(
-                                &self.ocean_settings_buffer,
-                                0,
-                                bytemuck::cast_slice(&[self.ocean_settings]),
-                            );
-                        }
-
-                        if ui.button("Reset All").clicked() {
-                            self.draft_settings = defaults;
-                            self.settings_changed = true;
-                        }
-                    });
-                });
-            });
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -1314,13 +1072,14 @@ impl State {
             &screen_descriptor,
         );
 
-        let debug_info_text = Self::get_debug_text(self);
+        let debug_info_text = self.get_debug_text();
+        let debug_info_opacity = if self.show_debug_text { 1.0 } else { 0.0 };
 
         let debug_info_section = wgpu_text::glyph_brush::Section::default()
             .add_text(
                 wgpu_text::glyph_brush::Text::new(debug_info_text.as_str())
                     .with_scale(25.0)
-                    .with_color([0.98, 0.98, 0.98, 1.0]),
+                    .with_color([0.98, 0.98, 0.98, debug_info_opacity]),
             )
             .with_bounds((1280.0, 1440.0))
             .with_layout(
