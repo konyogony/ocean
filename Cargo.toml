@@ -19,6 +19,9 @@ rand_distr = "0.5.1"
 chrono = "0.4.42"
 sysinfo = "0.37.2"
 futures = "0.3.31"
+egui = "0.33.3"
+egui-wgpu = "0.33.3"
+egui-winit = "0.33.3"
 
 [dependencies.image]
 version = "0.25.8"
