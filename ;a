@@ -3,10 +3,12 @@ use crate::settings::{OceanSettings, OceanSettingsBuilder};
 use crate::skybox::Skybox;
 use crate::texture::{Texture, DEPTH_FORMAT};
 use crate::vertex::{InitialData, Vertex};
+use crate::{DESC, VERSION};
 use anyhow::Result;
 use cgmath::{Deg, Zero};
+use chrono::Local;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 use sysinfo::System;
 use wgpu::{util::DeviceExt, Color};
 use wgpu_text::glyph_brush::ab_glyph::FontArc;
@@ -90,7 +92,6 @@ pub struct State {
 
     pub time_bind_group: wgpu::BindGroup,
     pub initial_data_group: wgpu::BindGroup,
-    pub initial_data_buffer: wgpu::Buffer,
 
     pub ocean_settings: OceanSettings,
     pub ocean_settings_buffer: wgpu::Buffer,
@@ -102,7 +103,6 @@ pub struct State {
     pub show_debug_text: bool,
     pub draft_settings: OceanSettings,
     pub settings_changed: bool,
-    // Store the exponent for log2 sliders in the UI
 
     // For some apparent reason I read that this HAS to be at the bottom (not fact checked)
     pub window: Arc<Window>,
@@ -313,9 +313,7 @@ impl State {
         let initial_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Initial Data Buffer"),
             contents: bytemuck::cast_slice(&initial_data_array),
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         });
 
         let initial_data_group_layout =
@@ -807,7 +805,6 @@ impl State {
             fft_compute_pipeline,
             spectrum_pipeline,
             height_field_bind_group,
-            initial_data_buffer,
             avg_magnitude,
             max_magnitude,
             gpu_name,
@@ -829,6 +826,110 @@ impl State {
             draft_settings: ocean_settings,
             settings_changed: false,
         })
+    }
+
+    pub fn get_debug_text(&mut self) -> String {
+        self.sys.refresh_memory();
+        self.sys.refresh_cpu_usage();
+        let cpu_usage = self.sys.global_cpu_usage();
+        let ram_total = self.sys.total_memory() as f32 / 1024.0 / 1024.0;
+        let ram_used = self.sys.used_memory() as f32 / 1024.0 / 1024.0;
+
+        let system_time = SystemTime::now();
+        let datetime: chrono::DateTime<Local> = system_time.into();
+        let formatted_time = datetime.format("%Y-%m-%d %H:%M:%S.%3f UTC%Z").to_string();
+
+        // [(bearing + 2pi) % 2pi] * [180/pi]
+        let bearing_360 = ((self.camera.bearing.0 + std::f32::consts::TAU) % std::f32::consts::TAU)
+            * 180.0
+            / std::f32::consts::PI;
+        // [-pi/2 < pitch < pi/2] * [180/pi]
+        let pitch = self
+            .camera
+            .pitch
+            .0
+            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2)
+            * 180.0
+            / std::f32::consts::PI;
+        let compass_dir = Camera::bearing_to_compass(bearing_360);
+
+        let wind = format!(
+            "({}, {})",
+            self.ocean_settings.wind_vector[0], self.ocean_settings.wind_vector[1]
+        );
+        let tri_count = self.num_indices / 3;
+        // Data collected by me, formatted by AI
+        format!(
+            "Ocean Simulation v{VERSION}\n\
+            Stage: {DESC}\n\
+            {formatted_time}\n\
+            \n\
+            XYZ: {x:.1} / {y:.1} / {z:.1}\n\
+            Facing: {dir} ({bearing:.0}°) Pitch: {pitch:+.1}°\n\
+            FOV: {fov:.0}° ViewDist: {zfar:.0}\n\
+            Cam Speed: {cam_speed} (Boost: {cam_boost})\n\
+            \n\
+            System:\n\
+            FPS: {fps:.0} ({ms:.1} ms)\n\
+            Resolution: {w}x{h}\n\
+            GPU: {gpu_name}\n\
+            CPU: {cpu_name} ({cpu_usage:.0}%)\n\
+            RAM: {ram_used:.1}/{ram_total:.1} GB\n\
+            OS: {os_name} ({kernel})\n\
+            Backend: Vulkan (wgpu)\n\
+            \n\
+            Ocean:\n\
+            Mesh Size: {size:.0}m²\n\
+            Mesh Subdivisions: {sub}\n\
+            FFT Size: {fft_size}\n\
+            FFT Subdivisions: {fft_sub}\n\
+            Amplitude: {amp}\n\
+            l_small: {l_small}\n\
+            Wind Vector: {wind}\n\
+            Max Angular Velocity: {max_w}\n\
+            Initial spectrum - Max: {i_max:.10}, Avg: {i_avg:.10}\n\
+            FFT Output (est) - Min: {fft_min:.6}, Max: {fft_max:.6}, Avg: {fft_avg:.6}\n\
+            Tris: {tris}\n\
+            ",
+            VERSION = VERSION,
+            DESC = DESC,
+            formatted_time = formatted_time,
+            x = self.camera.eye.x,
+            y = self.camera.eye.y,
+            z = self.camera.eye.z,
+            dir = compass_dir,
+            bearing = bearing_360,
+            pitch = pitch,
+            fov = self.ocean_settings.fovy,
+            zfar = self.ocean_settings.zfar,
+            fps = self.fps,
+            ms = 1000.0 / self.fps.max(0.001),
+            w = self.surface_config.width,
+            h = self.surface_config.height,
+            size = self.ocean_settings.mesh_size,
+            sub = self.ocean_settings.mesh_subdivisions,
+            i_max = self.max_magnitude,
+            i_avg = self.avg_magnitude,
+            fft_min = self.fft_min,
+            fft_max = self.fft_max,
+            fft_avg = self.fft_avg,
+            gpu_name = self.gpu_name,
+            cpu_name = self.cpu_name,
+            cpu_usage = cpu_usage,
+            ram_total = ram_total,
+            ram_used = ram_used,
+            os_name = self.os_name,
+            kernel = self.kernel_version,
+            tris = tri_count,
+            amp = self.ocean_settings.amplitude,
+            l_small = self.ocean_settings.l_small,
+            wind = wind,
+            fft_size = self.ocean_settings.fft_size,
+            fft_sub = self.ocean_settings.fft_subdivisions,
+            max_w = self.ocean_settings.max_w,
+            cam_speed = self.ocean_settings.cam_speed,
+            cam_boost = self.ocean_settings.cam_boost
+        )
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -902,7 +1003,6 @@ impl State {
             self.fps_timer = 0.0;
         }
 
-        // Add dt so the cam speed isnt dependant on the FPS
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform.update_view_proj(&mut self.camera);
         // Okay now we are using real time.

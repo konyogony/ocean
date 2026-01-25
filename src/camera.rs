@@ -70,6 +70,11 @@ impl Camera {
         let idx = ((bearing_deg + 22.5) / 45.0).floor() as usize % 8;
         DIRS[idx]
     }
+
+    pub fn update_camera_settings(&mut self, zfar: f32, fovy: f32) {
+        self.fovy = fovy;
+        self.zfar = zfar;
+    }
 }
 
 #[repr(C)]
@@ -107,9 +112,9 @@ impl CameraUniform {
 
 // We can also make scroll correlate to the speed boost
 pub struct CameraController {
-    speed: f32,
-    sensitivity: f32,
-    speed_boost: f32,
+    pub speed: f32,
+    pub sensitivity: f32,
+    pub speed_boost: f32,
     is_forward_pressed: bool,
     is_backward_pressed: bool,
     is_left_pressed: bool,
@@ -198,7 +203,22 @@ impl CameraController {
         }
     }
 
-    pub fn update_camera(&mut self, camera: &mut Camera) {
+    pub fn update_all_camera_settings(
+        &mut self,
+        camera: &mut Camera,
+        cam_speed: f32,
+        cam_boost: f32,
+        cam_sensitivity: f32,
+        zfar: f32,
+        fovy: f32,
+    ) {
+        camera.update_camera_settings(zfar, fovy);
+        self.sensitivity = cam_sensitivity;
+        self.speed = cam_speed;
+        self.speed_boost = cam_boost;
+    }
+
+    pub fn update_camera(&mut self, camera: &mut Camera, dt: f32) {
         let speed = match self.is_cntrl_pressed {
             true => self.speed * self.speed_boost,
             false => self.speed,
@@ -225,24 +245,24 @@ impl CameraController {
         let right = cgmath::Vector3::new(-sin_yaw, 0.0, cos_yaw).normalize();
 
         if self.is_forward_pressed {
-            camera.eye += forward * speed;
+            camera.eye += forward * speed * dt;
         }
         if self.is_backward_pressed {
-            camera.eye -= forward * speed;
+            camera.eye -= forward * speed * dt;
         }
 
         if self.is_right_pressed {
-            camera.eye += right * speed;
+            camera.eye += right * speed * dt;
         }
         if self.is_left_pressed {
-            camera.eye -= right * speed;
+            camera.eye -= right * speed * dt;
         }
 
         if self.is_up_pressed {
-            camera.eye += camera.up * speed;
+            camera.eye += camera.up * speed * dt;
         }
         if self.is_down_pressed {
-            camera.eye -= camera.up * speed;
+            camera.eye -= camera.up * speed * dt;
         }
     }
 }
