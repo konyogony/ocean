@@ -155,7 +155,7 @@ impl State {
                         ui,
                         "Damping",
                         &mut self.draft_settings.l_small,
-                        0.001..=1.5,
+                        0.001..=100.5,
                         defaults.l_small,
                         self.settings_changed
                     );
@@ -343,6 +343,7 @@ impl State {
                                 self.draft_settings.wind_vector,
                                 self.draft_settings.l_small,
                                 self.draft_settings.amplitude,
+                                self.draft_settings.max_w,
                             );
 
                             self.queue.write_buffer(
@@ -362,6 +363,11 @@ impl State {
 
                         if ui.button("Reset All").clicked() {
                             self.draft_settings = defaults;
+                            self.settings_changed = true;
+                        }
+
+                        if ui.button("Load Rogue Ocean").clicked() {
+                            self.draft_settings = OceanSettingsBuilder::rogue().build();
                             self.settings_changed = true;
                         }
                     });

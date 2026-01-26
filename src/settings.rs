@@ -225,6 +225,24 @@ impl OceanSettingsBuilder {
         self
     }
 
+    pub fn rogue() -> Self {
+        Self::default()
+            .fft_subdivisions(64)
+            .time_scale(1.5)
+            .chop_scale(1.2)
+            .amplitude_scale(1.5)
+            .wind_vector([18.0, 14.0])
+            .amplitude(0.45)
+            .l_small(20.0)
+            .max_w(30.0)
+            .foam_scale(5.0)
+            .roughness(0.25)
+            .deep_color([0.0, 0.0, 0.01, 1.0])
+            .shallow_color([0.01, 0.03, 0.1, 1.0])
+            .sss_color([0.0, 0.5, 0.4, 1.0])
+            .sun_color([0.3, 0.3, 0.4, 1.0])
+    }
+
     pub fn build(self) -> OceanSettings {
         assert!(self.fft_subdivisions.is_power_of_two());
         assert!(self.fft_size > 0.0);

@@ -24,6 +24,7 @@ impl InitialData {
         wind_vector: [f32; 2],
         l_small: f32,
         amplitude: f32,
+        max_w: f32,
     ) -> Self {
         let normal = Normal::new(0.0, 1.0).unwrap();
 
@@ -55,7 +56,7 @@ impl InitialData {
             };
         }
 
-        let phk = Self::get_phillips_spectrum_value(k_vec, wind_vector, l_small, amplitude);
+        let phk = Self::get_phillips_spectrum_value(k_vec, wind_vector, l_small, amplitude, max_w);
 
         // Random values from the gaussian distribution
         let xi_r = normal.sample(&mut rand::rng());
@@ -84,6 +85,7 @@ impl InitialData {
         wind_vector: [f32; 2],
         l_small: f32,
         amplitude: f32,
+        max_w: f32,
     ) -> (Vec<Self>, f32, f32) {
         let mut array: Vec<Self> = Vec::new();
         let mut max_magnitude = 0.0f32;
@@ -99,6 +101,7 @@ impl InitialData {
                     wind_vector,
                     l_small,
                     amplitude,
+                    max_w,
                 );
                 let mag = (data.initial_freq_domain[0].powi(2)
                     + data.initial_freq_domain[1].powi(2))
@@ -120,8 +123,13 @@ impl InitialData {
         wind_vector: [f32; 2],
         l_small: f32,
         amplitude: f32,
+        max_w: f32,
     ) -> f32 {
         let k: Vector2<f32> = k_vec.into();
+        let k_len = k.magnitude();
+        if k_len > max_w {
+            return 0.0;
+        }
         let k2 = k.magnitude2();
         if k2 <= 0.0000001 {
             return 0.0;

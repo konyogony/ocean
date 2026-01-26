@@ -308,6 +308,7 @@ impl State {
             ocean_settings.wind_vector,
             ocean_settings.l_small,
             ocean_settings.amplitude,
+            ocean_settings.max_w,
         );
 
         let initial_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
