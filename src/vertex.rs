@@ -1,4 +1,5 @@
 use cgmath::{InnerSpace, Vector2};
+use rand::{rngs::StdRng, SeedableRng};
 use rand_distr::{Distribution, Normal};
 use std::f32;
 use std::mem;
@@ -25,6 +26,7 @@ impl InitialData {
         l_small: f32,
         amplitude: f32,
         max_w: f32,
+        rng: &mut StdRng,
     ) -> Self {
         let normal = Normal::new(0.0, 1.0).unwrap();
 
@@ -59,8 +61,8 @@ impl InitialData {
         let phk = Self::get_phillips_spectrum_value(k_vec, wind_vector, l_small, amplitude, max_w);
 
         // Random values from the gaussian distribution
-        let xi_r = normal.sample(&mut rand::rng());
-        let xi_i = normal.sample(&mut rand::rng());
+        let xi_r = normal.sample(rng);
+        let xi_i = normal.sample(rng);
 
         let factor = phk.sqrt() / f32::consts::SQRT_2;
 
@@ -86,7 +88,10 @@ impl InitialData {
         l_small: f32,
         amplitude: f32,
         max_w: f32,
+        seed: u32,
     ) -> (Vec<Self>, f32, f32) {
+        println!("{seed}");
+        let mut rng = StdRng::seed_from_u64(seed as u64);
         let mut array: Vec<Self> = Vec::new();
         let mut max_magnitude = 0.0f32;
         let mut sum_magnitude = 0.0f32;
@@ -102,6 +107,7 @@ impl InitialData {
                     l_small,
                     amplitude,
                     max_w,
+                    &mut rng,
                 );
                 let mag = (data.initial_freq_domain[0].powi(2)
                     + data.initial_freq_domain[1].powi(2))

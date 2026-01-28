@@ -13,7 +13,7 @@ impl State {
             pass.set_pipeline(&self.spectrum_pipeline);
             pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
             pass.set_bind_group(1, &self.fft_bind_groups_b[0], &[]); // Buffer A will have it.
-            pass.set_bind_group(2, &self.time_bind_group, &[]);
+            pass.set_bind_group(2, &self.camera_bind_group, &[]);
             pass.set_bind_group(3, &self.initial_data_group, &[]);
             pass.dispatch_workgroups(
                 &self.ocean_settings.fft_subdivisions / 16,
@@ -36,7 +36,7 @@ impl State {
 
             pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
             pass.set_bind_group(1, bind_group, &[]);
-            pass.set_bind_group(2, &self.time_bind_group, &[]);
+            pass.set_bind_group(2, &self.camera_bind_group, &[]);
             pass.set_bind_group(3, &self.initial_data_group, &[]);
             pass.dispatch_workgroups(
                 &self.ocean_settings.fft_subdivisions / 16,
@@ -66,9 +66,26 @@ impl State {
                 (&self.ocean_settings.fft_subdivisions.pow(2) * 16) as u64,
             );
         }
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.normal_compute_pipeline);
+
+            pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
+            pass.set_bind_group(1, &self.fft_bind_groups_a[0], &[]);
+            pass.set_bind_group(2, &self.camera_bind_group, &[]);
+            pass.set_bind_group(3, &self.initial_data_group, &[]);
+
+            pass.dispatch_workgroups(
+                self.ocean_settings.fft_subdivisions / 16,
+                self.ocean_settings.fft_subdivisions / 16,
+                1,
+            );
+        }
 
         self.queue.submit(std::iter::once(encoder.finish()));
     }
+
+    pub fn calculate_normals(&mut self) {}
 
     pub fn debug_fft_values_sync(&mut self) {
         let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {

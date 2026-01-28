@@ -1,16 +1,16 @@
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct OceanSettings {
-    pub mesh_size: f32,         // 1024.0
-    pub mesh_subdivisions: u32, // 2048
-    pub fft_size: f32,          // 1024.0
-    pub fft_subdivisions: u32,  // 32
-    pub pass_num: u32,          // log2(fft_subdivisions)
-    pub time_scale: f32,        // 10.0
-    pub chop_scale: f32,        // 1.25
-    pub amplitude_scale: f32,   // 1.0
-    pub wave_scale: f32,        // mesh_size / fft_size
-    pub _pad0: f32,
+    pub mesh_size: f32,            // 1024.0
+    pub mesh_subdivisions: u32,    // 2048
+    pub fft_size: f32,             // 1024.0
+    pub fft_subdivisions: u32,     // 32
+    pub pass_num: u32,             // log2(fft_subdivisions)
+    pub time_scale: f32,           // 10.0
+    pub ocean_seed: u32,           // RNG
+    pub chop_scale: f32,           // 1.25
+    pub amplitude_scale: f32,      // 1.0
+    pub wave_scale: f32,           // mesh_size / fft_size
     pub wind_vector: [f32; 2],     // (10.0, 10.0)
     pub amplitude: f32,            // 0.6
     pub l_small: f32,              // 0.001
@@ -39,6 +39,7 @@ pub struct OceanSettingsBuilder {
     fft_size: f32,
     fft_subdivisions: u32,
     time_scale: f32,
+    ocean_seed: u32,
     chop_scale: f32,
     amplitude_scale: f32,
     wind_vector: [f32; 2],
@@ -70,6 +71,7 @@ impl Default for OceanSettingsBuilder {
             fft_size: 1000.0,
             fft_subdivisions: 64, // Lower number, greater details (like zooming in)
             time_scale: 1.5,
+            ocean_seed: 0,
             chop_scale: 1.25,
             amplitude_scale: 1.0,
             wind_vector: [6.0, -8.0],
@@ -225,9 +227,15 @@ impl OceanSettingsBuilder {
         self
     }
 
-    pub fn rogue() -> Self {
+    pub fn ocean_seed(mut self, v: u32) -> Self {
+        self.ocean_seed = v;
+        self
+    }
+
+    pub fn rogue(seed: u32) -> Self {
         Self::default()
-            .fft_subdivisions(64)
+            .ocean_seed(seed)
+            .fft_subdivisions(64) // Make sure this number stays below the one in default
             .time_scale(1.5)
             .chop_scale(1.2)
             .amplitude_scale(1.5)
@@ -258,6 +266,7 @@ impl OceanSettingsBuilder {
             fft_subdivisions: self.fft_subdivisions,
             pass_num,
             time_scale: self.time_scale,
+            ocean_seed: self.ocean_seed,
             chop_scale: self.chop_scale,
             amplitude_scale: self.amplitude_scale,
             wave_scale,
@@ -280,7 +289,6 @@ impl OceanSettingsBuilder {
             shallow_color: self.shallow_color,
             sss_color: self.sss_color,
             sun_color: self.sun_color,
-            _pad0: 0.0,
             _pad1: [0.0; 2],
         }
     }

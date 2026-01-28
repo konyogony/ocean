@@ -8,6 +8,7 @@ struct OceanSettings {
     fft_subdivisions: u32,  
     pass_num: u32,         
     time_scale: f32,        
+    ocean_seed: u32, 
     chop_scale: f32,        
     amplitude_scale: f32,   
     wave_scale: f32,      
@@ -46,15 +47,18 @@ struct FFTUniform {
 @group(1) @binding(2) var<storage, read_write> dst: array<vec4<f32>>; // THis will hold height and dx
 @group(1) @binding(3) var<storage, read> src_dz: array<vec4<f32>>; // While this one only dz
 @group(1) @binding(4) var<storage, read_write> dst_dz: array<vec4<f32>>;
+@group(1) @binding(5) var normal_texture: texture_storage_2d<rgba16float, write>;
 
 // Time
-struct TimeUniform {
-    time_uniform: f32,
-}
+struct CameraUniform {
+    view_proj: mat4x4<f32>,
+    view_proj_sky: mat4x4<f32>,
+    camera_pos: vec3<f32>,
+    time: f32,
+};
 
 @group(2) @binding(0)
-var<uniform> time: TimeUniform;
-
+var<uniform> camera: CameraUniform;
 
 // Initial frequency domain
 struct InitialData {
@@ -93,7 +97,7 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     let h_0_mirrored_conjugate = vec2<f32>(h_0_mirrored.x, -h_0_mirrored.y);
 
     let w_i = initial_data[index].angular_frequency;
-    let wt = w_i * time.time_uniform * ocean_settings.time_scale;
+    let wt = w_i * camera.time * ocean_settings.time_scale;
     let cos_wt = cos(wt);
     let sin_wt = sin(wt);
 
@@ -198,4 +202,61 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
 
 fn complex_multiplication(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+// Now we calculate everything in compute shader
+@compute @workgroup_size(16,16)
+fn generate_normals(@builtin(global_invocation_id) id: vec3<u32>) {
+    let x = id.x;
+    let y = id.y;
+    let n = ocean_settings.fft_subdivisions;
+
+    if (x >= n || y >= n) {
+        return;
+    }
+
+    let delta = ocean_settings.fft_size / f32(n);
+    let amp = ocean_settings.amplitude_scale;
+    let chop = ocean_settings.chop_scale;
+
+    let x_l = (x + n - 1u) % n;
+    let x_r = (x + 1u) % n;
+    let y_d = (y + n - 1u) % n;
+    let y_u = (y + 1u) % n;
+
+    let d_l = dst[y * n + x_l];
+    let dz_l_val = dst_dz[y * n + x_l].x;
+    let d_r = dst[y * n + x_r];
+    let dz_r_val = dst_dz[y * n + x_r].x;
+    let d_d = dst[y_d * n + x];
+    let dz_d_val = dst_dz[y_d * n + x].x;
+    let d_u = dst[y_u * n + x];
+    let dz_u_val = dst_dz[y_u * n + x].x;
+
+    let t_x = (2.0 * delta) + (d_r.z - d_l.z) * amp * chop; 
+    let t_y = (d_r.x - d_l.x) * amp;
+    let t_z = (dz_r_val - dz_l_val) * amp * chop;
+
+    let tangent = vec3<f32>(t_x, t_y, t_z);
+    let b_x = (d_u.z - d_d.z) * amp * chop;
+    let b_y = (d_u.x - d_d.x) * amp;
+    let b_z = (2.0 * delta) + (dz_u_val - dz_d_val) * amp * chop;
+
+    let bitangent = vec3<f32>(b_x, b_y, b_z);
+
+    let normal = normalize(cross(bitangent, tangent));
+
+    let dDxdx = (d_r.z - d_l.z) * amp * chop / (2.0 * delta);
+    let dDzdz = (dz_u_val - dz_d_val) * amp * chop / (2.0 * delta);
+    
+    let dDxdz = (d_u.z - d_d.z) * amp * chop / (2.0 * delta);
+    let dDzdx = (dz_r_val - dz_l_val) * amp * chop / (2.0 * delta);
+
+    let jacobian = (1.0 + dDxdx) * (1.0 + dDzdz) - (dDxdz * dDzdx);
+
+    textureStore(
+        normal_texture,
+        vec2<i32>(i32(x), i32(y)),
+        vec4<f32>(normal, jacobian)
+    );
 }

@@ -6,6 +6,23 @@ use crate::{DESC, VERSION};
 use chrono::Local;
 use std::time::SystemTime;
 
+macro_rules! settings_number_ui {
+    ($ui:expr, $label:expr, $value:expr, $default:expr, $changed:expr) => {{
+        $ui.horizontal(|ui| {
+            ui.label($label);
+
+            if ui.add(egui::DragValue::new($value)).changed() {
+                $changed = true;
+            }
+
+            if ui.small_button("⟲").clicked() {
+                *$value = $default;
+                $changed = true;
+            }
+        });
+    }};
+}
+
 macro_rules! settings_slider_ui {
     ($ui:expr, $label:expr, $value:expr, $range:expr, $default:expr, $changed:expr) => {{
         $ui.horizontal(|ui| {
@@ -96,6 +113,14 @@ impl State {
                         self.settings_changed
                     );
 
+                    settings_number_ui!(
+                        ui,
+                        "Seed",
+                        &mut self.draft_settings.ocean_seed,
+                        defaults.ocean_seed,
+                        self.settings_changed
+                    );
+
                     ui.heading("Wave Parameters");
                     settings_slider_ui!(
                         ui,
@@ -137,7 +162,7 @@ impl State {
                         ui,
                         "FFT Subdivisions (log2)",
                         &mut self.draft_settings.pass_num,
-                        0..=14,
+                        0..=defaults.pass_num,
                         defaults.pass_num,
                         self.settings_changed
                     );
@@ -344,6 +369,7 @@ impl State {
                                 self.draft_settings.l_small,
                                 self.draft_settings.amplitude,
                                 self.draft_settings.max_w,
+                                self.draft_settings.ocean_seed,
                             );
 
                             self.queue.write_buffer(
@@ -362,12 +388,15 @@ impl State {
                         }
 
                         if ui.button("Reset All").clicked() {
+                            let seed = self.ocean_settings.ocean_seed;
                             self.draft_settings = defaults;
+                            self.draft_settings.ocean_seed = seed;
                             self.settings_changed = true;
                         }
 
                         if ui.button("Load Rogue Ocean").clicked() {
-                            self.draft_settings = OceanSettingsBuilder::rogue().build();
+                            self.draft_settings =
+                                OceanSettingsBuilder::rogue(self.draft_settings.ocean_seed).build();
                             self.settings_changed = true;
                         }
                     });

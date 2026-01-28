@@ -5,6 +5,7 @@ use crate::texture::{Texture, DEPTH_FORMAT};
 use crate::vertex::{InitialData, Vertex};
 use anyhow::Result;
 use cgmath::{Deg, Zero};
+use rand::Rng;
 use std::sync::Arc;
 use std::time::Instant;
 use sysinfo::System;
@@ -14,18 +15,18 @@ use wgpu_text::glyph_brush::{BuiltInLineBreaker, HorizontalAlign, VerticalAlign}
 use winit::event::ElementState;
 use winit::window::Window;
 
-// TODO: Figure out if this time unfiorm is correct/needed
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct TimeUniform {
-    pub time_uniform: f32,
-}
-
-impl TimeUniform {
-    pub fn increment_time(&mut self, step: f32) {
-        self.time_uniform += step
-    }
-}
+// Move it to the camera struct
+// #[repr(C)]
+// #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+// pub struct TimeUniform {
+//     pub time_uniform: f32,
+// }
+//
+// impl TimeUniform {
+//     pub fn increment_time(&mut self, step: f32) {
+//         self.time_uniform += step
+//     }
+// }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -57,8 +58,8 @@ pub struct State {
     pub depth_texture: Texture,
     pub skybox: Skybox,
 
-    pub time_uniform: TimeUniform,
-    pub time_buffer: wgpu::Buffer,
+    // pub time_uniform: TimeUniform,
+    // pub time_buffer: wgpu::Buffer,
     pub last_frame_time_instant: Instant,
     pub fps: f32,
     pub frame_counter: u32,
@@ -83,12 +84,15 @@ pub struct State {
     pub spectrum_pipeline: wgpu::ComputePipeline,
     pub height_field_bind_group: wgpu::BindGroup,
 
+    pub normal_texture: Texture,
+    pub normal_compute_pipeline: wgpu::ComputePipeline,
+
     pub fft_min: f32,
     pub fft_max: f32,
     pub fft_avg: f32,
     pub fft_samples_checked: u32,
 
-    pub time_bind_group: wgpu::BindGroup,
+    //    pub time_bind_group: wgpu::BindGroup,
     pub initial_data_group: wgpu::BindGroup,
     pub initial_data_buffer: wgpu::Buffer,
 
@@ -102,7 +106,6 @@ pub struct State {
     pub show_debug_text: bool,
     pub draft_settings: OceanSettings,
     pub settings_changed: bool,
-    // Store the exponent for log2 sliders in the UI
 
     // For some apparent reason I read that this HAS to be at the bottom (not fact checked)
     pub window: Arc<Window>,
@@ -158,7 +161,10 @@ impl State {
         };
 
         // Ocean settings setup
-        let ocean_settings = OceanSettingsBuilder::default().build();
+        let ocean_seed = rand::rng().random::<u32>();
+        let ocean_settings = OceanSettingsBuilder::default()
+            .ocean_seed(ocean_seed)
+            .build();
 
         let ocean_settings_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Ocean Settings Buffer"),
@@ -228,7 +234,9 @@ impl State {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::VERTEX
+                        | wgpu::ShaderStages::FRAGMENT
+                        | wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -261,40 +269,39 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
-        // This looks HELLA wonky
-        let time_uniform = TimeUniform { time_uniform: 0.00 };
+        // let time_uniform = TimeUniform { time_uniform: 0.00 };
 
-        let time_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Time Buffer"),
-            contents: bytemuck::cast_slice(&[time_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        // let time_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        //     label: Some("Time Buffer"),
+        //     contents: bytemuck::cast_slice(&[time_uniform]),
+        //     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        // });
 
-        let time_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX
-                        | wgpu::ShaderStages::FRAGMENT
-                        | wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("time_bind_group_layout"),
-            });
+        // let time_bind_group_layout =
+        //     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        //         entries: &[wgpu::BindGroupLayoutEntry {
+        //             binding: 0,
+        //             visibility: wgpu::ShaderStages::VERTEX
+        //                 | wgpu::ShaderStages::FRAGMENT
+        //                 | wgpu::ShaderStages::COMPUTE,
+        //             ty: wgpu::BindingType::Buffer {
+        //                 ty: wgpu::BufferBindingType::Uniform,
+        //                 has_dynamic_offset: false,
+        //                 min_binding_size: None,
+        //             },
+        //             count: None,
+        //         }],
+        //         label: Some("time_bind_group_layout"),
+        //     });
 
-        let time_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &time_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: time_buffer.as_entire_binding(),
-            }],
-            label: Some("time_bind_group"),
-        });
+        // let time_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        //     layout: &time_bind_group_layout,
+        //     entries: &[wgpu::BindGroupEntry {
+        //         binding: 0,
+        //         resource: time_buffer.as_entire_binding(),
+        //     }],
+        //     label: Some("time_bind_group"),
+        // });
 
         // Setting up the surface as well as creating initial waves for simple sum of sine waves
         let (verticies, indicies) =
@@ -309,6 +316,7 @@ impl State {
             ocean_settings.l_small,
             ocean_settings.amplitude,
             ocean_settings.max_w,
+            ocean_settings.ocean_seed,
         );
 
         let initial_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -342,6 +350,12 @@ impl State {
             }],
             label: Some("initial_data_group"),
         });
+
+        let normal_texture = Texture::create_storage_texture(
+            &device,
+            ocean_settings.fft_subdivisions,
+            "Normal Map Texture",
+        );
 
         // Ping-Pong buffer model
         let fft_uniform_size = std::mem::size_of::<FFTUniform>() as u64;
@@ -472,6 +486,16 @@ impl State {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -506,6 +530,10 @@ impl State {
                         binding: 4,
                         resource: fft_buffer_b_dz.as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(&normal_texture.view),
+                    },
                 ],
                 label: None,
             }));
@@ -538,6 +566,10 @@ impl State {
                         binding: 4,
                         resource: fft_buffer_a_dz.as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(&normal_texture.view),
+                    },
                 ],
                 label: None,
             }));
@@ -553,7 +585,8 @@ impl State {
             bind_group_layouts: &[
                 &ocean_settings_bind_group_layout,
                 &fft_group_layout,
-                &time_bind_group_layout,
+                &camera_bind_group_layout,
+                //                &time_bind_group_layout,
                 &initial_data_group_layout,
             ],
             push_constant_ranges: &[],
@@ -575,7 +608,8 @@ impl State {
                 bind_group_layouts: &[
                     &ocean_settings_bind_group_layout,
                     &fft_group_layout,
-                    &time_bind_group_layout,
+                    //                    &time_bind_group_layout,
+                    &camera_bind_group_layout,
                     &initial_data_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -614,6 +648,22 @@ impl State {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
                 ],
             });
 
@@ -630,8 +680,26 @@ impl State {
                     binding: 1,
                     resource: fft_buffer_a_dz.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&normal_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&normal_texture.sampler),
+                },
             ],
         });
+
+        let normal_compute_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Normal Compute Pipeline"),
+                layout: Some(&fft_pipeline_layout),
+                module: &fft_shader,
+                entry_point: Some("generate_normals"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
 
         // Creating the skybox
 
@@ -789,14 +857,11 @@ impl State {
             camera_controller,
             depth_texture,
             skybox,
-            time_uniform,
             fps: 0.0,
             last_frame_time_instant: Instant::now(),
             fps_timer: 0.0,
             frame_counter: 0,
             text_brush,
-            time_buffer,
-            time_bind_group,
             initial_data_group,
             fft_uniform_buffer,
             fft_bind_groups_b,
@@ -829,6 +894,8 @@ impl State {
             show_debug_text: true,
             draft_settings: ocean_settings,
             settings_changed: false,
+            normal_texture,
+            normal_compute_pipeline,
         })
     }
 
@@ -907,16 +974,11 @@ impl State {
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform.update_view_proj(&mut self.camera);
         // Okay now we are using real time.
-        self.time_uniform.increment_time(dt);
+        self.camera_uniform.increment_time(dt);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
-        );
-        self.queue.write_buffer(
-            &self.time_buffer,
-            0,
-            bytemuck::cast_slice(&[self.time_uniform]),
         );
         self.compute_fft();
     }
