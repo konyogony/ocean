@@ -90,7 +90,6 @@ impl InitialData {
         max_w: f32,
         seed: u32,
     ) -> (Vec<Self>, f32, f32) {
-        println!("{seed}");
         let mut rng = StdRng::seed_from_u64(seed as u64);
         let mut array: Vec<Self> = Vec::new();
         let mut max_magnitude = 0.0f32;

@@ -1,7 +1,7 @@
 const g: f32 = 9.81;
 const pi: f32 = 3.14159;
 
-struct OceanSettings {
+struct OceanSettingsUniform {
     mesh_size: f32,         
     mesh_subdivisions: u32, 
     fft_size: f32,          
@@ -27,6 +27,18 @@ struct OceanSettings {
     reflection_scale: f32,
     foam_scale: f32,
     sss_distortion_scale: f32,
+    caustic_scale: f32,
+    caustic_size: f32,
+    caustic_speed: f32,
+    caustic_intensity: f32,
+    caustic_octaves: u32,
+    caustic_depth: f32,
+    caustic_max_distance: f32,
+    micro_normal_strength: f32,
+    foam_threshold: f32,
+    foam_speed: f32,
+    foam_roughness: f32,
+    caustic_color_tint: vec4<f32>,
     deep_color: vec4<f32>,
     shallow_color: vec4<f32>,
     sss_color: vec4<f32>,
@@ -34,7 +46,7 @@ struct OceanSettings {
 }
 
 @group(0) @binding(0)
-var<uniform> ocean_settings: OceanSettings;
+var<uniform> ocean_settings: OceanSettingsUniform;
 
 // FFT Data
 struct FFTUniform {
@@ -47,7 +59,6 @@ struct FFTUniform {
 @group(1) @binding(2) var<storage, read_write> dst: array<vec4<f32>>; // THis will hold height and dx
 @group(1) @binding(3) var<storage, read> src_dz: array<vec4<f32>>; // While this one only dz
 @group(1) @binding(4) var<storage, read_write> dst_dz: array<vec4<f32>>;
-@group(1) @binding(5) var normal_texture: texture_storage_2d<rgba16float, write>;
 
 // Time
 struct CameraUniform {
@@ -145,7 +156,7 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
     let base_idx = group_idx * (2u * s) + offset;
     let idx0_t = base_idx;
     let idx1_t = base_idx + s;
-    
+
     var i0: vec2<u32>;
     var i1: vec2<u32>;
     if (config.is_vertical == 1u) {
@@ -177,7 +188,13 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
         result = result / f32(n);
     }
 
-    dst[y * n + x] = result;
+    var write_idx: vec2<u32>;
+    if (config.is_vertical == 1u) {
+        write_idx = vec2<u32>(other, t);
+    } else {
+        write_idx = vec2<u32>(t, other);
+    }
+    dst[write_idx.y * n + write_idx.x] = result;
     
     // again, repeat same for dz
     let src0_dz = src_dz[i0.y * n + i0.x];
@@ -202,61 +219,4 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
 
 fn complex_multiplication(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
-}
-
-// Now we calculate everything in compute shader
-@compute @workgroup_size(16,16)
-fn generate_normals(@builtin(global_invocation_id) id: vec3<u32>) {
-    let x = id.x;
-    let y = id.y;
-    let n = ocean_settings.fft_subdivisions;
-
-    if (x >= n || y >= n) {
-        return;
-    }
-
-    let delta = ocean_settings.fft_size / f32(n);
-    let amp = ocean_settings.amplitude_scale;
-    let chop = ocean_settings.chop_scale;
-
-    let x_l = (x + n - 1u) % n;
-    let x_r = (x + 1u) % n;
-    let y_d = (y + n - 1u) % n;
-    let y_u = (y + 1u) % n;
-
-    let d_l = dst[y * n + x_l];
-    let dz_l_val = dst_dz[y * n + x_l].x;
-    let d_r = dst[y * n + x_r];
-    let dz_r_val = dst_dz[y * n + x_r].x;
-    let d_d = dst[y_d * n + x];
-    let dz_d_val = dst_dz[y_d * n + x].x;
-    let d_u = dst[y_u * n + x];
-    let dz_u_val = dst_dz[y_u * n + x].x;
-
-    let t_x = (2.0 * delta) + (d_r.z - d_l.z) * amp * chop; 
-    let t_y = (d_r.x - d_l.x) * amp;
-    let t_z = (dz_r_val - dz_l_val) * amp * chop;
-
-    let tangent = vec3<f32>(t_x, t_y, t_z);
-    let b_x = (d_u.z - d_d.z) * amp * chop;
-    let b_y = (d_u.x - d_d.x) * amp;
-    let b_z = (2.0 * delta) + (dz_u_val - dz_d_val) * amp * chop;
-
-    let bitangent = vec3<f32>(b_x, b_y, b_z);
-
-    let normal = normalize(cross(bitangent, tangent));
-
-    let dDxdx = (d_r.z - d_l.z) * amp * chop / (2.0 * delta);
-    let dDzdz = (dz_u_val - dz_d_val) * amp * chop / (2.0 * delta);
-    
-    let dDxdz = (d_u.z - d_d.z) * amp * chop / (2.0 * delta);
-    let dDzdx = (dz_r_val - dz_l_val) * amp * chop / (2.0 * delta);
-
-    let jacobian = (1.0 + dDxdx) * (1.0 + dDzdz) - (dDxdz * dDzdx);
-
-    textureStore(
-        normal_texture,
-        vec2<i32>(i32(x), i32(y)),
-        vec4<f32>(normal, jacobian)
-    );
 }

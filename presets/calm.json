@@ -1,0 +1,74 @@
+{
+  "preset_name": "calm",
+  "author": "konyogony",
+  "description": "a better version of the calm ocean",
+  "created_at": 1769860268,
+  "last_modified_at": 1769861160,
+  "fft_size": 1000.0,
+  "fft_subdivisions": 256,
+  "pass_num": 8,
+  "time_scale": 1.5,
+  "ocean_seed": 2133108070,
+  "chop_scale": 1.2,
+  "amplitude_scale": 1.0,
+  "wave_scale": 1.0,
+  "wind_vector": [
+    12.0,
+    -10.0
+  ],
+  "amplitude": 1.0,
+  "l_small": 0.1,
+  "max_w": 10.0,
+  "fovy": 60.0,
+  "zfar": 1500.0,
+  "cam_speed": 20.0,
+  "cam_boost": 2.5,
+  "cam_sensitivity": 0.002,
+  "roughness": 0.15,
+  "f_0": 0.02,
+  "specular_scale": 1.0,
+  "reflection_scale": 0.2,
+  "foam_scale": 8.2,
+  "sss_distortion_scale": 0.2,
+  "caustic_scale": 0.18,
+  "caustic_size": 4.8,
+  "caustic_speed": 0.1,
+  "caustic_intensity": 0.7,
+  "caustic_octaves": 1,
+  "caustic_depth": 0.65,
+  "caustic_max_distance": 650.0,
+  "micro_normal_strength": 0.0001,
+  "foam_threshold": 0.5,
+  "foam_speed": 0.05,
+  "foam_roughness": 0.6,
+  "caustic_color_tint": [
+    0.95,
+    1.0,
+    1.05,
+    1.0
+  ],
+  "deep_color": [
+    0.0,
+    0.01,
+    0.05,
+    1.0
+  ],
+  "shallow_color": [
+    0.0,
+    0.06,
+    0.09,
+    1.0
+  ],
+  "sss_color": [
+    0.0,
+    0.4,
+    0.3,
+    1.0
+  ],
+  "sun_color": [
+    1.0,
+    0.9,
+    0.8,
+    1.0
+  ]
+}
