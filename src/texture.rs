@@ -2,6 +2,7 @@ use anyhow::Result;
 use image::GenericImageView;
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+pub const FFT_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 pub struct Texture {
     pub texture: wgpu::Texture,
@@ -206,14 +207,13 @@ impl Texture {
             depth_or_array_layers: 1,
         };
 
-        let format = wgpu::TextureFormat::Rgba32Float;
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size: texture_size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format,
+            format: FFT_TEXTURE_FORMAT,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });

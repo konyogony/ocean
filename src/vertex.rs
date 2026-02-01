@@ -128,7 +128,7 @@ impl InitialData {
 
         for stage in 0..max_stages {
             let s = 1u32 << stage;
-            for offset in 0..5 {
+            for offset in 0..s {
                 let angle = 2.0 * std::f32::consts::PI * (offset as f32) / (2.0 * s as f32);
                 twiddles.push([angle.cos(), angle.sin()])
             }

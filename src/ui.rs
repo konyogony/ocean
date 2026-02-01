@@ -676,7 +676,28 @@ impl State {
                         .add_enabled(self.settings_changed, egui::Button::new("Apply Changes"))
                         .clicked()
                     {
+                        let old_sub = self.ocean_settings_uniform.fft_subdivisions;
                         self.ocean_settings_uniform = self.draft_settings;
+
+                        if self.ocean_settings_uniform.fft_subdivisions != old_sub {
+                            self.reinit_fft_resources();
+                        } else {
+                            let (new_initial_data_array, _, _) = InitialData::generate_data(
+                                self.draft_settings.fft_size,
+                                self.ocean_settings_uniform.fft_subdivisions,
+                                self.draft_settings.wind_vector,
+                                self.draft_settings.l_small,
+                                self.draft_settings.amplitude,
+                                self.draft_settings.max_w,
+                                self.draft_settings.ocean_seed,
+                            );
+
+                            self.queue.write_buffer(
+                                &self.initial_data_buffer,
+                                0,
+                                bytemuck::cast_slice(&new_initial_data_array),
+                            );
+                        }
 
                         self.camera_controller.update_all_camera_settings(
                             &mut self.camera,
@@ -685,23 +706,6 @@ impl State {
                             self.draft_settings.cam_sensitivity,
                             self.draft_settings.zfar,
                             self.draft_settings.fovy,
-                        );
-
-                        let fft_subdivisions = 1 << self.draft_settings.pass_num;
-                        let (new_initial_data_array, _, _) = InitialData::generate_data(
-                            self.draft_settings.fft_size,
-                            fft_subdivisions,
-                            self.draft_settings.wind_vector,
-                            self.draft_settings.l_small,
-                            self.draft_settings.amplitude,
-                            self.draft_settings.max_w,
-                            self.draft_settings.ocean_seed,
-                        );
-
-                        self.queue.write_buffer(
-                            &self.initial_data_buffer,
-                            0,
-                            bytemuck::cast_slice(&new_initial_data_array),
                         );
 
                         self.queue.write_buffer(

@@ -55,10 +55,10 @@ struct FFTUniform {
 }
 
 @group(1) @binding(0) var<uniform> config: FFTUniform;
-@group(1) @binding(1) var<storage, read> src: array<vec4<f32>>;
-@group(1) @binding(2) var<storage, read_write> dst: array<vec4<f32>>; // THis will hold height and dx
-@group(1) @binding(3) var<storage, read> src_dz: array<vec4<f32>>; // While this one only dz
-@group(1) @binding(4) var<storage, read_write> dst_dz: array<vec4<f32>>;
+@group(1) @binding(1) var src_h_dx: texture_storage_2d<rgba16float, read>;
+@group(1) @binding(2) var dst_h_dx: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(3) var src_dz: texture_storage_2d<rgba16float, read>;
+@group(1) @binding(4) var dst_dz: texture_storage_2d<rgba16float, write>;
 
 // Time
 struct CameraUniform {
@@ -96,12 +96,6 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     let m_y = (n - y) % n;
     let mirrored_index = m_y * n + m_x;
 
-    // Check if we are at the origin
-    // if (id.x == 0u && id.y == 0u) {
-    //     dst[index] = vec2<f32>(0.0, 0.0);
-    //     return;
-    // }
-
     // Extract data using the index
     let h_0 = initial_data[index].initial_frequency_domain;
     let h_0_mirrored = initial_data[mirrored_index].initial_frequency_domain;
@@ -117,8 +111,9 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     let exponent_neg = vec2<f32>(cos_wt, -sin_wt);
 
     let h_tilda: vec2<f32> = complex_multiplication(h_0, exponent) + complex_multiplication(h_0_mirrored_conjugate, exponent_neg);
-    let shift = select(1.0, -1.0, ((x + y) % 2u) == 1u);
-    let h_tilda_shifted = h_tilda * shift;
+    // No shift needed, since we are dealing w a texture now
+    // let shift = select(1.0, -1.0, ((x + y) % 2u) == 1u);
+    // let h_tilda_shifted = h_tilda * shift;
 
     let k = initial_data[index].k_vec;
     let k_len = length(k);
@@ -128,11 +123,12 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     if (k_len > 0.0001) {
         let k_norm = k / k_len;
         // i * complex is: (-imag, real)
-        h_dx = vec2<f32>(-h_tilda_shifted.y * k_norm.x, h_tilda_shifted.x * k_norm.x);
-        h_dz = vec2<f32>(-h_tilda_shifted.y * k_norm.y, h_tilda_shifted.x * k_norm.y);
+        h_dx = vec2<f32>(-h_tilda.y * k_norm.x, h_tilda.x * k_norm.x);
+        h_dz = vec2<f32>(-h_tilda.y * k_norm.y, h_tilda.x * k_norm.y);
     }
-    dst[index] = vec4<f32>(h_tilda_shifted, h_dx);
-    dst_dz[index] = vec4<f32>(h_dz, 0.0, 0.0); // We have space for something else for the future
+
+    textureStore(dst_h_dx, vec2<i32>(id.xy), vec4<f32>(h_tilda, h_dx));
+    textureStore(dst_dz, vec2<i32>(id.xy), vec4<f32>(h_dz, 0.0, 0.0));
 }
 
 // This will run log2(N) * 2 times
@@ -167,54 +163,43 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
         i1 = vec2<u32>(idx1_t, other);
     }
 
-    let src0 = src[i0.y * n + i0.x];
-    let src1 = src[i1.y * n + i1.x];
+    let src0_h_dx = textureLoad(src_h_dx, vec2<i32>(i0));
+    let src1_h_dx = textureLoad(src_h_dx, vec2<i32>(i1));
+
+    let src0_dz = textureLoad(src_dz, vec2<i32>(i0));
+    let src1_dz = textureLoad(src_dz, vec2<i32>(i1));
 
     // Positive since Inverse 
     let base = (1u << config.stage) - 1u;
     let twiddle = twiddle_arr[base + offset];
 
-    let rotated_src1_xy = complex_multiplication(twiddle, src1.xy);
-    let rotated_src1_zw = complex_multiplication(twiddle, src1.zw);
+    let rotated_h_dx_xy = complex_multiplication(twiddle, src1_h_dx.xy);
+    let rotated_h_dx_zw = complex_multiplication(twiddle, src1_h_dx.zw);
     
-    var result: vec4<f32>;
+    var result_h_dx: vec4<f32>;
     if (pair == 0u) {
-        result = vec4<f32>(src0.xy + rotated_src1_xy, src0.zw + rotated_src1_zw);
+        result_h_dx = vec4<f32>(src0_h_dx.xy + rotated_h_dx_xy, src0_h_dx.zw + rotated_h_dx_zw);
     } else {
-        result = vec4<f32>(src0.xy - rotated_src1_xy, src0.zw - rotated_src1_zw);
-    }
-    
-    if (config.stage == ocean_settings.pass_num - 1u) {
-        result = result / f32(n);
+        result_h_dx = vec4<f32>(src0_h_dx.xy - rotated_h_dx_xy, src0_h_dx.zw - rotated_h_dx_zw);
     }
 
-    var write_idx: vec2<u32>;
-    if (config.is_vertical == 1u) {
-        write_idx = vec2<u32>(other, t);
-    } else {
-        write_idx = vec2<u32>(t, other);
-    }
-    dst[write_idx.y * n + write_idx.x] = result;
-    
     // again, repeat same for dz
-    let src0_dz = src_dz[i0.y * n + i0.x];
-    let src1_dz = src_dz[i1.y * n + i1.x];
 
-    let rotated_src1_xy_dz = complex_multiplication(twiddle, src1_dz.xy);
-    let rotated_src1_zw_dz = complex_multiplication(twiddle, src1_dz.zw);
-
+    let rotated_dz_xy = complex_multiplication(twiddle, src1_dz.xy);
     var result_dz: vec4<f32>;
     if (pair == 0u) {
-        result_dz = vec4<f32>(src0_dz.xy + rotated_src1_xy_dz, src0_dz.zw + rotated_src1_zw_dz);
+        result_dz = vec4<f32>(src0_dz.xy + rotated_dz_xy, 0.0, 0.0);
     } else {
-        result_dz = vec4<f32>(src0_dz.xy - rotated_src1_xy_dz, src0_dz.zw - rotated_src1_zw_dz);
+        result_dz = vec4<f32>(src0_dz.xy - rotated_dz_xy, 0.0, 0.0);
     }
     
     if (config.stage == ocean_settings.pass_num - 1u) {
         result_dz = result_dz / f32(n);
+        result_h_dx = result_h_dx / f32(n);
     }
 
-    dst_dz[y * n + x] = result_dz;
+    textureStore(dst_h_dx, vec2<u32>(id.xy), result_h_dx);
+    textureStore(dst_dz, vec2<i32>(id.xy), result_dz);
 }
 
 fn complex_multiplication(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {

@@ -76,25 +76,27 @@ struct VertexOutput {
 
 @group(1) @binding(0) var<uniform> camera: CameraUniform;
 
-@group(2) @binding(0) var<storage, read> height_field: array<vec4<f32>>;
-@group(2) @binding(1) var<storage, read> height_field_dz: array<vec4<f32>>;
+@group(2) @binding(0) var texture_h_dx: texture_2d<f32>;
+@group(2) @binding(1) var texture_dz: texture_2d<f32>;
+@group(2) @binding(2) var sampler_ocean: sampler;
 
-@group(3) @binding(0) var t_skybox: texture_cube<f32>;
-@group(3) @binding(1) var s_skybox: sampler;
+@group(3) @binding(0) var texture_skybox: texture_cube<f32>;
+@group(3) @binding(1) var sampler_skybox: sampler;
 
 @vertex
 fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
     let world_xz = model.position.xz;
+    let uv = world_xz / ocean_settings.fft_size; 
     let amp = ocean_settings.amplitude_scale;
     let chop = ocean_settings.chop_scale;
     
-    let h_sample = sample_height_field(world_xz, ocean_settings.fft_size, ocean_settings.fft_subdivisions);
-    let dz_sample = sample_dz_field(world_xz, ocean_settings.fft_size, ocean_settings.fft_subdivisions);
+    let h_dx_sample = textureSampleLevel(texture_h_dx, sampler_ocean, uv, 0.0);
+    let dz_sample = textureSampleLevel(texture_dz, sampler_ocean, uv, 0.0);
 
-    let h = h_sample.x * amp;
-    let dx = h_sample.z * amp;
+    let h = h_dx_sample.x * amp;
+    let dx = h_dx_sample.z * amp;
     let dz = dz_sample.x * amp;
 
     var displaced_pos = vec3(
@@ -102,59 +104,25 @@ fn vs_main(model: VertexInput) -> VertexOutput {
         model.position.y + h,
         world_xz.y + dz * chop
     );
+    
+    // Moving everything to FS to get smoother normals
+    // Better delta
+    // let delta_uv = 1.0 / f32(ocean_settings.fft_subdivisions);
+    // let sample_r = textureSampleLevel(texture_h_dx, sampler_ocean, uv + vec2(delta_uv, 0.0), 0.0).x;
+    // let sample_l = textureSampleLevel(texture_h_dx, sampler_ocean, uv - vec2(delta_uv, 0.0), 0.0).x;
+    // let sample_u = textureSampleLevel(texture_h_dx, sampler_ocean, uv + vec2(0.0, delta_uv), 0.0).x;
+    // let sample_d = textureSampleLevel(texture_h_dx, sampler_ocean, uv - vec2(0.0, delta_uv), 0.0).x;
+    // let world_step = delta_uv * ocean_settings.fft_size;
+    // let ddx_h = (sample_r - sample_l) * amp / (2.0 * world_step);
+    // let ddz_h = (sample_u - sample_d) * amp / (2.0 * world_step);
+    // 
+    // out.normal = normalize(vec3<f32>(-ddx_h, 1.0, -ddz_h));
+    // 
+    // out.jacobian = (1.0 + (dx/world_step)) * (1.0 + (dz/world_step)); 
 
-    let delta = ocean_settings.fft_size / f32(ocean_settings.fft_subdivisions);
-
-    let sample_r = sample_height_field(world_xz + vec2(delta, 0.0), ocean_settings.fft_size, ocean_settings.fft_subdivisions);
-    let sample_l = sample_height_field(world_xz - vec2(delta, 0.0), ocean_settings.fft_size, ocean_settings.fft_subdivisions);
-    let sample_u = sample_height_field(world_xz + vec2(0.0, delta), ocean_settings.fft_size, ocean_settings.fft_subdivisions);
-    let sample_d = sample_height_field(world_xz - vec2(0.0, delta), ocean_settings.fft_size, ocean_settings.fft_subdivisions);
-
-    let dz_r = sample_dz_field(world_xz + vec2(delta, 0.0), ocean_settings.fft_size, ocean_settings.fft_subdivisions).x * amp;
-    let dz_l = sample_dz_field(world_xz - vec2(delta, 0.0), ocean_settings.fft_size, ocean_settings.fft_subdivisions).x * amp;
-    let dz_u = sample_dz_field(world_xz + vec2(0.0, delta), ocean_settings.fft_size, ocean_settings.fft_subdivisions).x * amp;
-    let dz_d = sample_dz_field(world_xz - vec2(0.0, delta), ocean_settings.fft_size, ocean_settings.fft_subdivisions).x * amp;
-
-    let h_r = sample_r.x * amp;
-    let h_l = sample_l.x * amp;
-    let h_u = sample_u.x * amp;
-    let h_d = sample_d.x * amp;
-
-    let dx_r = sample_r.z * amp;
-    let dx_l = sample_l.z * amp;
-    let dx_u = sample_u.z * amp;
-    let dx_d = sample_d.z * amp;
-    
-    let ddx_h = (h_r - h_l) / (2.0 * delta);
-    let ddz_h = (h_u - h_d) / (2.0 * delta);
-    
-    let ddx_dx = (dx_r - dx_l) / (2.0 * delta);
-    let ddz_dx = (dx_u - dx_d) / (2.0 * delta);
-    
-    let ddx_dz = (dz_r - dz_l) / (2.0 * delta);
-    let ddz_dz = (dz_u - dz_d) / (2.0 * delta);
-    
-    let dPdx = vec3<f32>(
-        1.0 + ddx_dx * chop,
-        ddx_h,
-        ddx_dz * chop
-    );
-    
-    let dPdz = vec3<f32>(
-        ddz_dx * chop,
-        ddz_h,
-        1.0 + ddz_dz * chop
-    );
-    
-    out.normal = normalize(cross(dPdz, dPdx));
-    
-    let dDxdx = (dx_r - dx_l) * chop / (2.0 * delta);
-    let dDzdz = (dz_u - dz_d) * chop / (2.0 * delta);
-    let dDxdz = (dx_u - dx_d) * chop / (2.0 * delta);
-    let dDzdx = (dz_r - dz_l) * chop / (2.0 * delta);
-    out.jacobian = (1.0 + dDxdx) * (1.0 + dDzdz) - (dDxdz * dDzdx);
-
-    out.tex_coords = model.tex_coords;
+    out.normal = vec3(0.0);
+    out.jacobian = 1.0;
+    out.tex_coords = uv;
     out.height = displaced_pos.y;
     out.world_pos = displaced_pos;
     out.clip_position = camera.view_proj * vec4<f32>(displaced_pos, 1.0);
@@ -165,9 +133,32 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let normal_geometry = normalize(in.normal);
-    let jacobian = in.jacobian;
+    // For cool normals
+    let uv = in.tex_coords;
+    let amp = ocean_settings.amplitude_scale;
+    let chop = ocean_settings.chop_scale;
+    let delta_uv = 1.0 / f32(ocean_settings.fft_subdivisions);
+    let world_step = delta_uv * ocean_settings.fft_size;
 
+    let sample_r = textureSampleLevel(texture_h_dx, sampler_ocean, uv + vec2(delta_uv, 0.0), 0.0).x;
+    let sample_l = textureSampleLevel(texture_h_dx, sampler_ocean, uv - vec2(delta_uv, 0.0), 0.0).x;
+    let sample_u = textureSampleLevel(texture_h_dx, sampler_ocean, uv + vec2(0.0, delta_uv), 0.0).x;
+    let sample_d = textureSampleLevel(texture_h_dx, sampler_ocean, uv - vec2(0.0, delta_uv), 0.0).x;
+
+    let ddx_h = (sample_r - sample_l) * amp / (2.0 * world_step);
+    let ddz_h = (sample_u - sample_d) * amp / (2.0 * world_step);
+
+    let dx_r = textureSample(texture_h_dx, sampler_ocean, uv + vec2(delta_uv, 0.0)).z;
+    let dx_l = textureSample(texture_h_dx, sampler_ocean, uv - vec2(delta_uv, 0.0)).z;
+    let dz_u = textureSample(texture_dz, sampler_ocean, uv + vec2(0.0, delta_uv)).x;
+    let dz_d = textureSample(texture_dz, sampler_ocean, uv - vec2(0.0, delta_uv)).x;
+    
+    let ddx_dx = (dx_r - dx_l) * amp * chop / (2.0 * world_step);
+    let ddz_dz = (dz_u - dz_d) * amp * chop / (2.0 * world_step);
+    let jacobian = (1.0 + ddx_dx) * (1.0 + ddz_dz);
+    let normal_geometry = normalize(vec3<f32>(-ddx_h, 1.0, -ddz_h));
+
+    // The usual
     let light_source_dir = normalize(vec3(-0.506, 0.471, -0.722));
     let view_dir = normalize(camera.camera_pos - in.world_pos);
     let reflect_dir = reflect(-view_dir, normal_geometry);
@@ -219,7 +210,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     water_base = mix(water_base, ocean_settings.sss_color.rgb * 0.5, turbidity * 0.3);
 
     let reflection_dampener = smoothstep(0.5, 1.0, jacobian);
-    let sky_reflection = textureSample(t_skybox, s_skybox, reflect_dir).rgb * ocean_settings.reflection_scale * reflection_dampener * (1.0 - foam_factor);
+    let sky_reflection = textureSample(texture_skybox, sampler_skybox, reflect_dir).rgb * ocean_settings.reflection_scale * reflection_dampener * (1.0 - foam_factor);
 
     let rougness_dynamic = mix(ocean_settings.roughness, ocean_settings.foam_roughness, foam_factor);
     let alpha = rougness_dynamic * rougness_dynamic;
@@ -458,72 +449,4 @@ fn voronoi_caustic(uv: vec2<f32>, time: f32) -> f32 {
     let edge_dist = second_min - min_dist;
     let caustic = 1.0 - smoothstep(0.0, 0.2, edge_dist);
     return pow(caustic, 1.5);
-}
-
-fn sample_height_field(
-    world_pos: vec2<f32>,
-    fft_size: f32,
-    subdivisions: u32
-) -> vec4<f32> {
-    let uv = fract(world_pos / fft_size);
-    let tex_coords = uv * f32(subdivisions);
-
-    let i = floor(tex_coords);
-    let f = fract(tex_coords);
-
-    let i_u32 = vec2<u32>(i);
-    let subdivisions_vec = vec2<u32>(subdivisions, subdivisions);
-
-    let i00 = i_u32 % subdivisions_vec;
-    let i10 = (i_u32 + vec2<u32>(1u, 0u)) % subdivisions_vec;
-    let i01 = (i_u32 + vec2<u32>(0u, 1u)) % subdivisions_vec;
-    let i11 = (i_u32 + vec2<u32>(1u, 1u)) % subdivisions_vec;
-
-    let idx00 = i00.y * subdivisions + i00.x;
-    let idx10 = i10.y * subdivisions + i10.x;
-    let idx01 = i01.y * subdivisions + i01.x;
-    let idx11 = i11.y * subdivisions + i11.x;
-
-    let s00 = height_field[idx00];
-    let s10 = height_field[idx10];
-    let s01 = height_field[idx01];
-    let s11 = height_field[idx11];
-
-    let x1 = mix(s00, s10, f.x);
-    let x2 = mix(s01, s11, f.x);
-    return mix(x1, x2, f.y);
-}
-
-fn sample_dz_field(
-    world_pos: vec2<f32>,
-    fft_size: f32,
-    subdivisions: u32
-) -> vec4<f32> {
-    let uv = fract(world_pos / fft_size);
-    let tex_coords = uv * f32(subdivisions);
-
-    let i = floor(tex_coords);
-    let f = fract(tex_coords);
-
-    let i_u32 = vec2<u32>(i);
-    let subdivisions_vec = vec2<u32>(subdivisions, subdivisions);
-
-    let i00 = i_u32 % subdivisions_vec;
-    let i10 = (i_u32 + vec2<u32>(1u, 0u)) % subdivisions_vec;
-    let i01 = (i_u32 + vec2<u32>(0u, 1u)) % subdivisions_vec;
-    let i11 = (i_u32 + vec2<u32>(1u, 1u)) % subdivisions_vec;
-
-    let idx00 = i00.y * subdivisions + i00.x;
-    let idx10 = i10.y * subdivisions + i10.x;
-    let idx01 = i01.y * subdivisions + i01.x;
-    let idx11 = i11.y * subdivisions + i11.x;
-
-    let s00 = height_field_dz[idx00];
-    let s10 = height_field_dz[idx10];
-    let s01 = height_field_dz[idx01];
-    let s11 = height_field_dz[idx11];
-
-    let x1 = mix(s00, s10, f.x);
-    let x2 = mix(s01, s11, f.x);
-    return mix(x1, x2, f.y);
 }
