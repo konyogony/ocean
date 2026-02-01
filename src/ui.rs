@@ -544,6 +544,99 @@ impl State {
                                 self.preset_modified
                             );
                         });
+
+                        ui.separator();
+                        
+                        egui::CollapsingHeader::new("Sky & Atmosphere")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                ui.label("Simulated Sky");
+                                
+                                settings_slider_vec4_ui!(
+                                    ui, "Day Zenith", &mut self.draft_settings.sky_color_day_zenith, 0.0..=1.0, defaults.sky_color_day_zenith, self.settings_changed, self.preset_modified
+                                );
+                                settings_slider_vec4_ui!(
+                                    ui, "Day Horizon", &mut self.draft_settings.sky_color_day_horizon, 0.0..=1.0, defaults.sky_color_day_horizon, self.settings_changed, self.preset_modified
+                                );
+                                settings_slider_vec4_ui!(
+                                    ui, "Night Zenith", &mut self.draft_settings.sky_color_night_zenith, 0.0..=1.0, defaults.sky_color_night_zenith, self.settings_changed, self.preset_modified
+                                );
+                                settings_slider_vec4_ui!(
+                                    ui, "Night Horizon", &mut self.draft_settings.sky_color_night_horizon, 0.0..=1.0, defaults.sky_color_night_horizon, self.settings_changed, self.preset_modified
+                                );
+                                
+                                ui.separator();
+                                ui.label("Sunset");
+                                settings_slider_vec4_ui!(
+                                    ui, "Sunset Orange", &mut self.draft_settings.sky_color_sunset_orange, 0.0..=1.0, defaults.sky_color_sunset_orange, self.settings_changed, self.preset_modified
+                                );
+                                settings_slider_vec4_ui!(
+                                    ui, "Sunset Pink", &mut self.draft_settings.sky_color_sunset_pink, 0.0..=1.0, defaults.sky_color_sunset_pink, self.settings_changed, self.preset_modified
+                                );
+                                 settings_slider_vec4_ui!(
+                                    ui, "Horizon Glow", &mut self.draft_settings.sky_color_horizon_glow, 0.0..=1.0, defaults.sky_color_horizon_glow, self.settings_changed, self.preset_modified
+                                );
+
+                                ui.separator();
+                                ui.label("Celestial Bodies");
+                                settings_slider_ui!(
+                                    ui, "Sun Offset Z", &mut self.draft_settings.sun_offset_z, -1.0..=1.0, defaults.sun_offset_z, self.settings_changed, self.preset_modified
+                                );
+                                 settings_slider_ui!(
+                                    ui, "Sun Halo Power", &mut self.draft_settings.sun_halo_power, 1.0..=1000.0, defaults.sun_halo_power, self.settings_changed, self.preset_modified
+                                );
+                                
+                                settings_slider_vec4_ui!(
+                                    ui, "Moon Lit Color", &mut self.draft_settings.moon_color_lit, 0.0..=1.0, defaults.moon_color_lit, self.settings_changed, self.preset_modified
+                                );
+                                settings_slider_vec4_ui!(
+                                    ui, "Moon Dark Color", &mut self.draft_settings.moon_color_dark, 0.0..=1.0, defaults.moon_color_dark, self.settings_changed, self.preset_modified
+                                );
+                                
+                                // Moon Vec3 handling via slider group manually
+                                ui.label("Moon Phase Offset");
+                                ui.horizontal(|ui| {
+                                    if ui.add(egui::Slider::new(&mut self.draft_settings.moon_phase_offset[0], -1.0..=1.0).text("X")).changed() { self.settings_changed = true; self.preset_modified = true; }
+                                    if ui.add(egui::Slider::new(&mut self.draft_settings.moon_phase_offset[1], -1.0..=1.0).text("Y")).changed() { self.settings_changed = true; self.preset_modified = true; }
+                                    if ui.add(egui::Slider::new(&mut self.draft_settings.moon_phase_offset[2], -1.0..=1.0).text("Z")).changed() { self.settings_changed = true; self.preset_modified = true; }
+                                });
+
+                                settings_slider_ui!(
+                                    ui, "Moon Radius", &mut self.draft_settings.moon_radius, 0.001..=0.1, defaults.moon_radius, self.settings_changed, self.preset_modified
+                                );
+                                settings_slider_ui!(
+                                    ui, "Moon Distance", &mut self.draft_settings.moon_dist, 10.0..=500.0, defaults.moon_dist, self.settings_changed, self.preset_modified
+                                );
+                                settings_slider_ui!(
+                                    ui, "Moon Craters", &mut self.draft_settings.moon_crater_scale, 0.1..=10.0, defaults.moon_crater_scale, self.settings_changed, self.preset_modified
+                                );
+
+                                ui.separator();
+                                ui.label("Stars & Clouds");
+                                 settings_slider_ui!(
+                                    ui, "Star Count", &mut self.draft_settings.star_count, 100.0..=10000.0, defaults.star_count, self.settings_changed, self.preset_modified
+                                );
+                                settings_slider_ui!(
+                                    ui, "Star Threshold", &mut self.draft_settings.star_threshold, 0.9..=0.9999, defaults.star_threshold, self.settings_changed, self.preset_modified
+                                );
+                                
+                                 settings_slider_vec4_ui!(
+                                    ui, "Cloud Color Day", &mut self.draft_settings.cloud_color_day, 0.0..=1.0, defaults.cloud_color_day, self.settings_changed, self.preset_modified
+                                );
+                                 settings_slider_vec4_ui!(
+                                    ui, "Cloud Color Night", &mut self.draft_settings.cloud_color_night, 0.0..=1.0, defaults.cloud_color_night, self.settings_changed, self.preset_modified
+                                );
+                                 settings_slider_ui!(
+                                    ui, "Cloud Speed", &mut self.draft_settings.cloud_speed, 0.0..=0.5, defaults.cloud_speed, self.settings_changed, self.preset_modified
+                                );
+                                 settings_slider_ui!(
+                                    ui, "Cloud Density Low", &mut self.draft_settings.cloud_density_low, 0.0..=1.0, defaults.cloud_density_low, self.settings_changed, self.preset_modified
+                                );
+                                 settings_slider_ui!(
+                                    ui, "Cloud Density High", &mut self.draft_settings.cloud_density_high, 0.0..=1.0, defaults.cloud_density_high, self.settings_changed, self.preset_modified
+                                );
+                    });
+
                     ui.separator();
 
                     egui::CollapsingHeader::new("Load Preset")

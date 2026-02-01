@@ -1,3 +1,4 @@
+use crate::settings::OceanSettingsUniform;
 use crate::texture::Texture;
 use anyhow::Result;
 use wgpu::util::DeviceExt;
@@ -41,6 +42,7 @@ impl Skybox {
         queue: &wgpu::Queue,
         surface_config: &wgpu::SurfaceConfiguration,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
+        ocean_settings_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Result<Self> {
         let skybox_texture =
             Texture::load_skybox_texture(device, queue, SKYBOX_FACES, "skybox_texture")?;
@@ -91,7 +93,11 @@ impl Skybox {
         let skybox_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Skybox Render Pipeline Layout"),
-                bind_group_layouts: &[camera_bind_group_layout, &skybox_texture_bind_group_layout],
+                bind_group_layouts: &[
+                    camera_bind_group_layout,
+                    &skybox_texture_bind_group_layout,
+                    ocean_settings_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 

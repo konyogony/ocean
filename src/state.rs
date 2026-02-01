@@ -158,7 +158,7 @@ impl State {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo, // Vsync (to like lower gpu stress or whatever). wgpu::PresentMode::Mailbox for uncapped but +idle
+            present_mode: wgpu::PresentMode::Mailbox, // Vsync (to like lower gpu stress or whatever). wgpu::PresentMode::Mailbox for uncapped but +idle
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -605,7 +605,13 @@ impl State {
 
         // Creating the skybox
 
-        let skybox = Skybox::new(&device, &queue, &surface_config, &camera_bind_group_layout)?;
+        let skybox = Skybox::new(
+            &device,
+            &queue,
+            &surface_config,
+            &camera_bind_group_layout,
+            &ocean_settings_bind_group_layout,
+        )?;
 
         // Setting up the render pipelines
 
