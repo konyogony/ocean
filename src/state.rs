@@ -174,11 +174,11 @@ impl State {
 
         // Ocean settings setup
         let ocean_seed = rand::rng().random::<u32>();
-        let ocean_settings_uniform = OceanSettingsBuilder::default()
+        let current_ocean_preset =
+            OceanPreset::load_preset("deep_blue_cinematic", Path::new("presets/"));
+        let ocean_settings_uniform = OceanSettingsBuilder::from_preset(&current_ocean_preset)
             .ocean_seed(ocean_seed)
             .build();
-
-        let current_ocean_preset = OceanPreset::load_preset("default", Path::new("presets/"));
         let available_presets = OceanPreset::get_preset_list(Path::new("presets/"))?;
 
         let ocean_settings_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -321,10 +321,13 @@ impl State {
         // Setting up the surface as well as creating initial waves for simple sum of sine waves
         let (verticies, indicies) = Vertex::generate_plane(
             &ocean_settings_uniform.mesh_size,
-            ocean_settings_uniform.mesh_subdivisions,
+            ocean_settings_uniform.fft_subdivisions * 2, // TODO: CHANGE
         );
 
         // Initial Data Initalisation
+
+        let twiddle_factor_array =
+            InitialData::generate_twiddle_factors(ocean_settings_uniform.fft_subdivisions);
 
         let (initial_data_array, max_magnitude, avg_magnitude) = InitialData::generate_data(
             ocean_settings_uniform.fft_size,
@@ -344,27 +347,53 @@ impl State {
                 | wgpu::BufferUsages::COPY_DST,
         });
 
+        let twiddle_factor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("FFT Twiddle Buffer"),
+            contents: bytemuck::cast_slice(&twiddle_factor_array),
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
+        });
+
         let initial_data_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
                 label: Some("initial_data_group_layout"),
             });
 
         let initial_data_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &initial_data_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: initial_data_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: initial_data_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: twiddle_factor_buffer.as_entire_binding(),
+                },
+            ],
             label: Some("initial_data_group"),
         });
 
@@ -387,7 +416,6 @@ impl State {
                 let i = stage * 2 + is_vertical;
                 let uniform = FFTUniform { stage, is_vertical };
                 let offset = i as u64 * step_size;
-
                 queue.write_buffer(&fft_config_buffer, offset, bytemuck::cast_slice(&[uniform]));
             }
         }

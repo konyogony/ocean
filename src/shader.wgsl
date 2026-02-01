@@ -1,5 +1,10 @@
 const g: f32 = 9.81;
 const pi: f32 = 3.14159;
+const SSS_MIN_HEIGHT: f32 = -0.5;
+const SSS_MAX_HEIGHT: f32 = 1.5;
+const SSS_POWER: f32 = 8.0;
+const SSS_INTENSITY: f32 = 2.0;
+const DETAIL_FADE: f32 = 800.0;
 
 struct OceanSettingsUniform {
     mesh_size: f32,
@@ -120,18 +125,28 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     let dx_u = sample_u.z * amp;
     let dx_d = sample_d.z * amp;
     
-    let tangent = vec3<f32>(
-        (2.0 * delta) + (dx_r - dx_l) * chop,
-        h_r - h_l,
-        (dz_r - dz_l) * chop
+    let ddx_h = (h_r - h_l) / (2.0 * delta);
+    let ddz_h = (h_u - h_d) / (2.0 * delta);
+    
+    let ddx_dx = (dx_r - dx_l) / (2.0 * delta);
+    let ddz_dx = (dx_u - dx_d) / (2.0 * delta);
+    
+    let ddx_dz = (dz_r - dz_l) / (2.0 * delta);
+    let ddz_dz = (dz_u - dz_d) / (2.0 * delta);
+    
+    let dPdx = vec3<f32>(
+        1.0 + ddx_dx * chop,
+        ddx_h,
+        ddx_dz * chop
     );
-    let bitangent = vec3<f32>(
-        (dx_u - dx_d) * chop,
-        h_u - h_d,
-        (2.0 * delta) + (dz_u - dz_d) * chop
+    
+    let dPdz = vec3<f32>(
+        ddz_dx * chop,
+        ddz_h,
+        1.0 + ddz_dz * chop
     );
-
-    out.normal = normalize(cross(bitangent, tangent));
+    
+    out.normal = normalize(cross(dPdz, dPdx));
     
     let dDxdx = (dx_r - dx_l) * chop / (2.0 * delta);
     let dDzdz = (dz_u - dz_d) * chop / (2.0 * delta);
@@ -162,22 +177,30 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let micro_normal = get_noise_normal(micro_uv, 0.5);
 
     let dist = length(camera.camera_pos - in.world_pos);
-    let detail_fade = 1.0 - smoothstep(50.0, 500.0, dist);
-    let blended_normal = normalize(mix(normal_geometry, micro_normal, detail_fade * ocean_settings.micro_normal_strength));
-
-    let normal = blended_normal;
+    let detail_fade = 1.0 - smoothstep(50.0, DETAIL_FADE, dist);
+    let T = normalize(cross(vec3(0.0,1.0,0.0), normal_geometry));
+    let B = cross(normal_geometry, T);
+    
+    let micro_ws = normalize(
+        micro_normal.x * T +
+        micro_normal.y * normal_geometry +
+        micro_normal.z * B
+    );
+    
+    let normal = normalize(mix(normal_geometry, micro_ws, detail_fade * ocean_settings.micro_normal_strength));
 
     let n_dot_light = clamp(dot(normal, light_source_dir), 0.0, 1.0);
     let n_dot_view = clamp(dot(normal, view_dir), 0.001, 1.0);
     let n_dot_half = clamp(dot(normal, half_dir), 0.0, 1.0);
     let view_dot_half = clamp(dot(view_dir, half_dir), 0.0, 1.0);
 
-    let trans_light_dir = normalize(light_source_dir + normal * ocean_settings.sss_distortion_scale);
+    let trans_light_dir = normalize(light_source_dir + normal * ocean_settings.sss_distortion_scale) * smoothstep(0.5, 1.2, jacobian);
     let trans_dot = max(dot(view_dir, -trans_light_dir), 0.0);
 
-    let sss_mask = smoothstep(0.0, 1.0, in.height * 0.5 + 0.5);
-    let sss_strength = pow(trans_dot, 4.0) * sss_mask * 2.0;
-    let sss = ocean_settings.sss_color.rgb * sss_strength;
+    let p_back = pow(trans_dot, SSS_POWER);
+    let sss_thickness_mask = 1.0 -  smoothstep(SSS_MIN_HEIGHT, SSS_MAX_HEIGHT, in.height);
+    let sss_strength = p_back * sss_thickness_mask * ocean_settings.sss_distortion_scale * SSS_INTENSITY;
+    let sss = mix(ocean_settings.sss_color.rgb, ocean_settings.sun_color.rgb, p_back) * sss_strength;
 
     let fresnel_sky = fresnel_func(n_dot_view, ocean_settings.f_0);
     let fresnel_spec = fresnel_func(view_dot_half, ocean_settings.f_0);
@@ -189,7 +212,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let foam_threshold = ocean_settings.foam_threshold - (foam_texture * 0.4); 
     let foam_factor = smoothstep(foam_threshold, foam_threshold + 0.1, jacobian_mask) * height_mask * ocean_settings.foam_scale;
 
-    let water_base = mix(ocean_settings.deep_color.rgb, ocean_settings.shallow_color.rgb, smoothstep(-2.0, 3.0, in.height));
+
+    let turbidity = smoothstep(0.8, 1.5, jacobian); // basically compression
+    let base_mix = smoothstep(-2.0, 4.0, in.height);
+    var water_base = mix(ocean_settings.deep_color.rgb, ocean_settings.shallow_color.rgb, base_mix);
+    water_base = mix(water_base, ocean_settings.sss_color.rgb * 0.5, turbidity * 0.3);
 
     let reflection_dampener = smoothstep(0.5, 1.0, jacobian);
     let sky_reflection = textureSample(t_skybox, s_skybox, reflect_dir).rgb * ocean_settings.reflection_scale * reflection_dampener * (1.0 - foam_factor);
@@ -214,7 +241,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let caustic_strength = sun_facing * foam_mask * dist_fade * depth_fade * view_angle_fade * choppiness_mask * 2.0;
     let caustic_color = caustic_pattern * ocean_settings.caustic_color_tint.rgb * caustic_strength;
 
-    color += caustic_color * color * 0.6;
+    color += caustic_color * ocean_settings.sss_color.rgb * 0.6;
     
     color = mix(color, sky_reflection, clamp(fresnel_sky, 0.0, 1.0));
     color += specular;

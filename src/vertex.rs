@@ -122,6 +122,21 @@ impl InitialData {
         (array, max_magnitude, avg_amplitude)
     }
 
+    pub fn generate_twiddle_factors(fft_subdivisions: u32) -> Vec<[f32; 2]> {
+        let max_stages = fft_subdivisions.ilog2();
+        let mut twiddles = Vec::<[f32; 2]>::with_capacity((fft_subdivisions - 1) as usize);
+
+        for stage in 0..max_stages {
+            let s = 1u32 << stage;
+            for offset in 0..5 {
+                let angle = 2.0 * std::f32::consts::PI * (offset as f32) / (2.0 * s as f32);
+                twiddles.push([angle.cos(), angle.sin()])
+            }
+        }
+
+        twiddles
+    }
+
     // This will be used later, dont worry
     pub fn get_phillips_spectrum_value(
         k_vec: [f32; 2],

@@ -79,8 +79,8 @@ struct InitialData {
     angular_frequency:  f32,
 }
 
-@group(3) @binding(0)
-var<storage, read> initial_data: array<InitialData>;
+@group(3) @binding(0) var<storage, read> initial_data: array<InitialData>;
+@group(3) @binding(1) var<storage, read> twiddle_arr: array<vec2<f32>>;
 
 // This shall run only once
 @compute @workgroup_size(16,16)
@@ -171,8 +171,8 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
     let src1 = src[i1.y * n + i1.x];
 
     // Positive since Inverse 
-    let angle = 2.0 * pi * f32(offset) / f32(2u * s);
-    let twiddle = vec2<f32>(cos(angle), sin(angle));
+    let base = (1u << config.stage) - 1u;
+    let twiddle = twiddle_arr[base + offset];
 
     let rotated_src1_xy = complex_multiplication(twiddle, src1.xy);
     let rotated_src1_zw = complex_multiplication(twiddle, src1.zw);

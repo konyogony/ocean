@@ -14,7 +14,6 @@ pub struct OceanPreset {
     pub last_modified_at: i64,
     pub fft_size: f32,
     pub fft_subdivisions: u32,
-    pub pass_num: u32,
     pub time_scale: f32,
     pub ocean_seed: u32,
     pub chop_scale: f32,
@@ -90,7 +89,6 @@ impl OceanPreset {
             last_modified_at: chrono::Local::now().timestamp(),
             fft_size: ocean_settings.fft_size,
             fft_subdivisions: ocean_settings.fft_subdivisions,
-            pass_num: ocean_settings.pass_num,
             time_scale: ocean_settings.time_scale,
             ocean_seed: ocean_settings.ocean_seed,
             chop_scale: ocean_settings.chop_scale,
@@ -149,7 +147,6 @@ impl OceanPreset {
             last_modified_at: chrono::Local::now().timestamp(),
             fft_size: new_ocean_settings.fft_size,
             fft_subdivisions: new_ocean_settings.fft_subdivisions,
-            pass_num: new_ocean_settings.pass_num,
             time_scale: new_ocean_settings.time_scale,
             ocean_seed: new_ocean_settings.ocean_seed,
             chop_scale: new_ocean_settings.chop_scale,
@@ -553,6 +550,8 @@ impl OceanSettingsBuilder {
             .roughness(preset.roughness)
             .max_w(preset.max_w)
             .l_small(preset.l_small)
+            .fft_subdivisions(preset.fft_subdivisions)
+            .fft_size(preset.fft_size)
     }
 
     pub fn from_preset(preset: &OceanPreset) -> Self {

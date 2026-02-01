@@ -6,7 +6,6 @@
   "last_modified_at": 1769851953,
   "fft_size": 1000.0,
   "fft_subdivisions": 256,
-  "pass_num": 8,
   "time_scale": 1.5,
   "ocean_seed": 0,
   "chop_scale": 1.25,

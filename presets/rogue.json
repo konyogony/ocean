@@ -3,16 +3,18 @@
   "author": "konyogony",
   "description": "default preset of a rogue and *slightly* ugly ocean",
   "created_at": 1769385720,
-  "last_modified_at": 1769851953,
+  "last_modified_at": 1769931135,
   "fft_size": 1000.0,
   "fft_subdivisions": 64,
-  "pass_num": 6,
   "time_scale": 1.5,
-  "ocean_seed": 1,
+  "ocean_seed": 757411725,
   "chop_scale": 1.2,
   "amplitude_scale": 1.5,
   "wave_scale": 1.0,
-  "wind_vector": [18.0, 14.0],
+  "wind_vector": [
+    18.0,
+    14.0
+  ],
   "amplitude": 0.45,
   "l_small": 20.0,
   "max_w": 30.0,
@@ -25,22 +27,47 @@
   "f_0": 0.02,
   "specular_scale": 1.0,
   "reflection_scale": 0.2,
-  "foam_scale": 5.0,
+  "foam_scale": 0.45,
   "sss_distortion_scale": 0.2,
   "caustic_scale": 0.18,
-  "caustic_size": 4.0,
-  "caustic_speed": 0.2,
-  "caustic_intensity": 2.0,
+  "caustic_size": 3.5,
+  "caustic_speed": 0.05,
+  "caustic_intensity": 0.05,
   "caustic_octaves": 1,
-  "caustic_depth": 0.25,
+  "caustic_depth": 1.0,
   "caustic_max_distance": 600.0,
-  "micro_normal_strength": 0.05,
-  "foam_threshold": 0.5,
-  "foam_speed": 0.05,
-  "foam_roughness": 0.6,
-  "caustic_color_tint": [0.95, 1.0, 1.05, 1.0],
-  "deep_color": [0.0, 0.0, 0.01, 1.0],
-  "shallow_color": [0.01, 0.03, 0.1, 1.0],
-  "sss_color": [0.0, 0.5, 0.4, 1.0],
-  "sun_color": [0.3, 0.3, 0.4, 1.0]
+  "micro_normal_strength": 0.01,
+  "foam_threshold": 0.25,
+  "foam_speed": 0.001,
+  "foam_roughness": 0.11,
+  "caustic_color_tint": [
+    0.95,
+    1.0,
+    1.05,
+    1.0
+  ],
+  "deep_color": [
+    0.0,
+    0.0,
+    0.01,
+    1.0
+  ],
+  "shallow_color": [
+    0.01,
+    0.03,
+    0.1,
+    1.0
+  ],
+  "sss_color": [
+    0.0,
+    0.5,
+    0.4,
+    1.0
+  ],
+  "sun_color": [
+    0.3,
+    0.3,
+    0.4,
+    1.0
+  ]
 }

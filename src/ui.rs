@@ -98,7 +98,7 @@ impl State {
     }
 
     pub fn render_settings_ui(&mut self, context: &egui::Context) {
-        let defaults = OceanSettingsBuilder::default().build();
+        let defaults = OceanSettingsBuilder::from_preset(&self.current_ocean_preset).build();
 
         egui::Window::new("Ocean Settings")
             .collapsible(true)
@@ -162,7 +162,7 @@ impl State {
                         .show(ui, |ui| {
                             settings_slider_ui!(
                                 ui,
-                                "FFT Subdivisions (log2)",
+                                "FFT Subdivisions (log2) (buggy)",
                                 &mut self.draft_settings.pass_num,
                                 0..=defaults.pass_num,
                                 defaults.pass_num,

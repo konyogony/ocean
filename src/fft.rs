@@ -8,6 +8,8 @@ impl State {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("FFT Multi-Pass Encoder"),
             });
+
+        // For the spectrum update
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.spectrum_pipeline);
