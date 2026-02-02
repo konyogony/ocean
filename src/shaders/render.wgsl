@@ -233,11 +233,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let trans_dot = max(dot(view_dir, -trans_light_dir), 0.0);
 
     // basically also from the skybox shader
-    let sunset_timing = exp(-pow(sun_up * 3.5, 2.0)) * smoothstep(-0.3, 0.3, sun_up);
-    let reflection_sun_angle = max(dot(reflect_dir, vec3(sun_dir.x, 0.0, sun_dir.z)), 0.0);
-    let reflection_sunset = pow(reflection_sun_angle, 2.0) * sunset_timing;
-    var sky_reflection = mix(horizon, zenith, pow(max(reflect_dir.y, 0.0), 0.6));
-    sky_reflection += ocean_settings.sky_color_sunset_orange.rgb * reflection_sunset * 2.0;
+    // let sunset_timing = exp(-pow(sun_up * 3.5, 2.0)) * smoothstep(-0.3, 0.3, sun_up);
+    // let reflection_sun_angle = max(dot(reflect_dir, vec3(sun_dir.x, 0.0, sun_dir.z)), 0.0);
+    // let reflection_sunset = pow(reflection_sun_angle, 2.0) * sunset_timing;
+    // var sky_reflection = mix(horizon, zenith, pow(max(reflect_dir.y, 0.0), 0.6));
+    // sky_reflection += ocean_settings.sky_color_sunset_orange.rgb * reflection_sunset * 2.0;
 
     let p_back = pow(trans_dot, SSS_POWER);
     let sss_thickness_mask = 1.0 - smoothstep(SSS_MIN_HEIGHT, SSS_MAX_HEIGHT, in.height);
@@ -284,7 +284,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     color += caustic_color * ocean_settings.sss_color.rgb * 0.6;
     
-    //color = mix(color, sky_reflection, clamp(fresnel_sky, 0.0, 1.0));
+    let sky_reflection = get_sky_color(reflect_dir) * ocean_settings.reflection_scale;
+    color = mix(color, sky_reflection, clamp(fresnel_sky, 0.0, 1.0));
     color += ambient * AMBIENT_SCALE;
     color += specular;
     
@@ -295,6 +296,147 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     color = pow(color, vec3<f32>(1.0/2.2));
 
     return vec4<f32>(color, 1.0);
+}
+
+// copied form other shader
+fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
+    let dir = normalize(view_dir);
+    let angle = ocean_settings.daynight_cycle * 6.28318;
+    
+    let sun_dir = normalize(vec3(sin(angle), cos(angle), ocean_settings.sun_offset_z));
+    let sun_up = sun_dir.y;
+    
+    let moon_base = -sun_dir;
+    let moon_dir = normalize(moon_base + ocean_settings.moon_phase_offset); 
+    
+    let intensity = smoothstep(-0.2, 0.5, sun_up);
+    let night_fade = clamp(-sun_up * 3.0, 0.0, 1.0);
+
+    let zenith = mix(ocean_settings.sky_color_night_zenith.rgb, ocean_settings.sky_color_day_zenith.rgb, intensity);
+    let horizon = mix(ocean_settings.sky_color_night_horizon.rgb, ocean_settings.sky_color_day_horizon.rgb, intensity);
+    var col = mix(horizon, zenith, pow(max(dir.y, 0.0), 0.7));
+
+    let sunset_timing = exp(-pow(sun_up * 4.0, 2.0)) * smoothstep(-0.2, 0.4, sun_up);
+    let sunset_angle = max(dot(dir, normalize(vec3(sun_dir.x, 0.0, sun_dir.z))), 0.0);
+    let sunset_vertical = smoothstep(-0.1, 0.4, dir.y) * smoothstep(0.7, 0.2, dir.y);
+    
+    let sunset_mix = mix(ocean_settings.sky_color_sunset_pink.rgb, ocean_settings.sky_color_sunset_orange.rgb, 0.7);
+    col += sunset_mix * pow(sunset_angle, 1.5) * sunset_vertical * sunset_timing * 2.5;
+    col += ocean_settings.sky_color_horizon_glow.rgb * pow(1.0 - abs(dir.y), 3.0) * sunset_timing * 0.3;
+
+    let sun_dist = dot(dir, sun_dir);
+    let sun_disk = smoothstep(ocean_settings.sun_size_inner, ocean_settings.sun_size_outer, sun_dist);
+    let sun_halo = pow(max(sun_dist, 0.0), ocean_settings.sun_halo_power) * 0.5;
+    col += (sun_disk + sun_halo) * mix(ocean_settings.sun_color.rgb, ocean_settings.sky_color_sunset_orange.rgb, sunset_timing) * intensity;
+
+    var hit_moon = false;
+    
+    if (dot(dir, moon_dir) > 0.0) {
+        let center = moon_dir * ocean_settings.moon_dist;
+        let radius = ocean_settings.moon_dist * ocean_settings.moon_radius; 
+        
+        let oc = -center;
+        let b = dot(oc, dir);
+        let c = dot(oc, oc) - radius * radius;
+        let h = b * b - c;
+        
+        if (h > 0.0) {
+            hit_moon = true;
+            let t = -b - sqrt(h);
+            let hit_pos = dir * t;
+            let normal = normalize(hit_pos - center);
+            let uv_moon = normal.xy * 2.0; 
+            let craters = 1.0 - moon_fbm(uv_moon * ocean_settings.moon_crater_scale) * 0.6; 
+            let diffuse = max(dot(normal, sun_dir), 0.0);
+            let terminator = smoothstep(-0.15, 0.15, diffuse);
+            let surface_col = mix(ocean_settings.moon_color_dark.rgb, ocean_settings.moon_color_lit.rgb * craters * 0.8, terminator);
+            let rim_aa = smoothstep(0.0, 0.05, sqrt(h));
+            let moon_visibility = 1.0 - (intensity * 0.7); 
+            col = mix(col, surface_col * moon_visibility, rim_aa);
+        } 
+    }
+    
+    if (!hit_moon) {
+        let moon_dist_ang = dot(dir, moon_dir);
+        let moon_glow = pow(max(moon_dist_ang, 0.0), ocean_settings.moon_halo_power) * 0.1 * night_fade;
+        col += vec3(0.5, 0.6, 0.8) * moon_glow;
+    }
+
+    if (!hit_moon && sun_up < 0.2) {
+        let star_grid = floor(dir * ocean_settings.star_count); 
+        let star_hash = hash31(star_grid);
+        if (star_hash > ocean_settings.star_threshold) {
+            let blink = sin(camera.time * (ocean_settings.star_blink_speed + star_hash) + star_hash * 50.0) * 0.4 + 0.6;
+            col += vec3(blink * star_hash) * night_fade * smoothstep(0.0, 0.2, dir.y);
+        }
+    }
+
+    if (dir.y > 0.0) {
+        let uv = (dir.xz / (dir.y + 0.25)) * 0.6;
+        let time_scale = camera.time * ocean_settings.cloud_speed;
+        let d = cloud_density(uv, time_scale);
+        let cloud_mask = smoothstep(ocean_settings.cloud_density_low, ocean_settings.cloud_density_high, d) * pow(dir.y, 1.5);
+        let d_shadow = cloud_density(uv - sun_dir.xz * 0.05, time_scale);
+        let cloud_lit = clamp(d - d_shadow, 0.0, 1.0);
+        let cloud_sunset_tint = (ocean_settings.sky_color_sunset_orange.rgb + ocean_settings.sky_color_sunset_pink.rgb * 0.5) * sunset_timing * 0.5;
+        let cloud_day_final = mix(ocean_settings.cloud_color_day.rgb * 0.9, vec3(1.0), cloud_lit) + cloud_sunset_tint;
+        let cloud_final = mix(ocean_settings.cloud_color_night.rgb, cloud_day_final, intensity);
+        col = mix(col, cloud_final, cloud_mask * 0.95);
+    }
+
+    return col;
+}
+
+
+fn hash31(p: vec3<f32>) -> f32 {
+    var p3 = fract(p * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+fn hash_v2(p: vec2<f32>) -> f32 {
+    var p3 = fract(vec3<f32>(p.xyx) * 0.13);
+    p3 += dot(p3, p3.yzx + 3.333);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+fn noise_skybox(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    return mix(mix(hash_v2(i + vec2(0.0, 0.0)), hash_v2(i + vec2(1.0, 0.0)), u.x),
+               mix(hash_v2(i + vec2(0.0, 1.0)), hash_v2(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+fn fbm_skybox(p: vec2<f32>) -> f32 {
+    var v = 0.0;
+    var a = 0.5;
+    var pos = p;
+    for (var i = 0; i < 5; i++) {
+        v += a * noise(pos);
+        pos *= 2.05;
+        a *= 0.5;
+    }
+    return v;
+}
+
+fn moon_fbm(p: vec2<f32>) -> f32 {
+    var v = 0.0;
+    var a = 0.5;
+    var pos = p;
+    for (var i = 0; i < 6; i++) {
+        v += a * abs(noise(pos) * 2.0 - 1.0); 
+        pos *= 2.1;
+        a *= 0.5;
+    }
+    return v;
+}
+
+fn cloud_density(p: vec2<f32>, t: f32) -> f32 {
+    let drift = vec2(t * 0.02, t * 0.01); // Internal drift ratios
+    let v1 = fbm(p + drift);
+    let v2 = fbm(p - drift * 0.5 + v1 * 0.8);
+    return v2;
 }
 
 
