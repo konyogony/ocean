@@ -111,7 +111,9 @@ impl State {
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Initial Data Buffer"),
                     contents: bytemuck::cast_slice(&initial_data_array),
-                    usage: wgpu::BufferUsages::STORAGE,
+                    usage: wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST
+                        | wgpu::BufferUsages::COPY_SRC,
                 });
 
         let twiddle_array = InitialData::generate_twiddle_factors(n);

@@ -1,5 +1,3 @@
-use crate::settings::OceanSettingsUniform;
-use crate::texture::Texture;
 use anyhow::Result;
 use wgpu::util::DeviceExt;
 
@@ -17,87 +15,29 @@ const SKYBOX_INDICES: &[u16] = &[
     4, 5, 1, 1, 0, 4, // -Y
 ];
 
-const SKYBOX_FACES: [&[u8]; 6] = [
-    include_bytes!("../static/skybox/px.png"), // Should be +X
-    include_bytes!("../static/skybox/nx.png"), // Should be -X
-    include_bytes!("../static/skybox/py.png"), // Should be +Y
-    include_bytes!("../static/skybox/ny.png"), // Should be -Y
-    include_bytes!("../static/skybox/pz.png"), // Should be +Z
-    include_bytes!("../static/skybox/nz.png"), // Should be -Z
-];
-
 pub struct Skybox {
-    pub skybox_texture: Texture,
     pub skybox_render_pipeline: wgpu::RenderPipeline,
-    pub skybox_bind_group: wgpu::BindGroup,
     pub skybox_vertex_buffer: wgpu::Buffer,
     pub skybox_index_buffer: wgpu::Buffer,
     pub num_skybox_indices: u32,
-    pub skybox_texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl Skybox {
     pub fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
         surface_config: &wgpu::SurfaceConfiguration,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
         ocean_settings_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Result<Self> {
-        let skybox_texture =
-            Texture::load_skybox_texture(device, queue, SKYBOX_FACES, "skybox_texture")?;
-
         let skybox_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Skybox Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/skybox.wgsl").into()),
         });
 
-        let skybox_texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::Cube,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("skybox_texture_bind_group_layout"),
-            });
-
-        let skybox_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &skybox_texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&skybox_texture.sampler),
-                },
-            ],
-            label: Some("skybox_bind_group"),
-        });
-
         let skybox_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Skybox Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    camera_bind_group_layout,
-                    &skybox_texture_bind_group_layout,
-                    ocean_settings_bind_group_layout,
-                ],
+                bind_group_layouts: &[camera_bind_group_layout, ocean_settings_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -159,13 +99,10 @@ impl Skybox {
             });
 
         Ok(Self {
-            skybox_texture,
-            skybox_bind_group,
             skybox_index_buffer,
             skybox_vertex_buffer,
             skybox_render_pipeline,
             num_skybox_indices,
-            skybox_texture_bind_group_layout,
         })
     }
 }

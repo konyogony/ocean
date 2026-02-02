@@ -5,6 +5,7 @@ const SSS_MAX_HEIGHT: f32 = 1.5;
 const SSS_POWER: f32 = 8.0;
 const SSS_INTENSITY: f32 = 2.0;
 const DETAIL_FADE: f32 = 800.0;
+const AMBIENT_SCALE: f32 = 0.25;
 
 struct OceanSettingsUniform {
     deep_color: vec4<f32>,
@@ -111,9 +112,6 @@ struct VertexOutput {
 @group(2) @binding(1) var texture_dz: texture_2d<f32>;
 @group(2) @binding(2) var sampler_ocean: sampler;
 
-@group(3) @binding(0) var texture_skybox: texture_cube<f32>;
-@group(3) @binding(1) var sampler_skybox: sampler;
-
 @vertex
 fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -189,11 +187,26 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let jacobian = (1.0 + ddx_dx) * (1.0 + ddz_dz);
     let normal_geometry = normalize(vec3<f32>(-ddx_h, 1.0, -ddz_h));
 
-    // The usual
-    let light_source_dir = normalize(vec3(-0.506, 0.471, -0.722));
+    // Use new sun position & get stuff from the skybox shader
+    let angle = ocean_settings.daynight_cycle * 6.28318;
+    let sun_dir = normalize(vec3(sin(angle), cos(angle), ocean_settings.sun_offset_z));
+    let sun_up = sun_dir.y;
+    let intensity = smoothstep(-0.2, 0.25, sun_up);
+    let night_fade = clamp(-sun_up * 4.0, 0.0, 1.0);
+    let moon_base = -sun_dir;
+    let moon_dir = normalize(moon_base + ocean_settings.moon_phase_offset);
+    let sun_light_color = ocean_settings.sun_color.rgb * intensity;
+    let moon_light_color = ocean_settings.moon_color_lit.rgb * night_fade * 0.25;
+
+    let light_dir = normalize(sun_dir * intensity + moon_dir * night_fade);
+    let light_color = sun_light_color + moon_light_color;
+    let zenith = mix(ocean_settings.sky_color_night_zenith.rgb, ocean_settings.sky_color_day_zenith.rgb, intensity);
+    let horizon = mix(ocean_settings.sky_color_night_horizon.rgb, ocean_settings.sky_color_day_horizon.rgb, intensity);
+    let ambient = mix(horizon, zenith, clamp(normal_geometry.y * 0.5 + 0.5, 0.0, 1.0));
+
     let view_dir = normalize(camera.camera_pos - in.world_pos);
     let reflect_dir = reflect(-view_dir, normal_geometry);
-    let half_dir = normalize(light_source_dir + view_dir);
+    let half_dir = normalize(light_dir + view_dir);
 
     let micro_uv = (in.world_pos.xz * 2.0) + ocean_settings.wind_vector * camera.time * 0.15;
     let micro_normal = get_noise_normal(micro_uv, 0.5);
@@ -211,42 +224,48 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     
     let normal = normalize(mix(normal_geometry, micro_ws, detail_fade * ocean_settings.micro_normal_strength));
 
-    let n_dot_light = clamp(dot(normal, light_source_dir), 0.0, 1.0);
+    let n_dot_light = clamp(dot(normal, light_dir), 0.0, 1.0);
     let n_dot_view = clamp(dot(normal, view_dir), 0.001, 1.0);
     let n_dot_half = clamp(dot(normal, half_dir), 0.0, 1.0);
     let view_dot_half = clamp(dot(view_dir, half_dir), 0.0, 1.0);
 
-    let trans_light_dir = normalize(light_source_dir + normal * ocean_settings.sss_distortion_scale) * smoothstep(0.5, 1.2, jacobian);
+    let trans_light_dir = normalize(light_dir + normal * ocean_settings.sss_distortion_scale) * smoothstep(0.5, 1.2, jacobian);
     let trans_dot = max(dot(view_dir, -trans_light_dir), 0.0);
 
+    // basically also from the skybox shader
+    let sunset_timing = exp(-pow(sun_up * 3.5, 2.0)) * smoothstep(-0.3, 0.3, sun_up);
+    let reflection_sun_angle = max(dot(reflect_dir, vec3(sun_dir.x, 0.0, sun_dir.z)), 0.0);
+    let reflection_sunset = pow(reflection_sun_angle, 2.0) * sunset_timing;
+    var sky_reflection = mix(horizon, zenith, pow(max(reflect_dir.y, 0.0), 0.6));
+    sky_reflection += ocean_settings.sky_color_sunset_orange.rgb * reflection_sunset * 2.0;
+
     let p_back = pow(trans_dot, SSS_POWER);
-    let sss_thickness_mask = 1.0 -  smoothstep(SSS_MIN_HEIGHT, SSS_MAX_HEIGHT, in.height);
+    let sss_thickness_mask = 1.0 - smoothstep(SSS_MIN_HEIGHT, SSS_MAX_HEIGHT, in.height);
     let sss_strength = p_back * sss_thickness_mask * ocean_settings.sss_distortion_scale * SSS_INTENSITY;
-    let sss = mix(ocean_settings.sss_color.rgb, ocean_settings.sun_color.rgb, p_back) * sss_strength;
+    let sss = mix(ocean_settings.sss_color.rgb, light_color, p_back) * sss_strength;
 
     let fresnel_sky = fresnel_func(n_dot_view, ocean_settings.f_0);
     let fresnel_spec = fresnel_func(view_dot_half, ocean_settings.f_0);
 
+    // better foam algo
     let jacobian_mask = 1.0 - clamp(jacobian, 0.0, 1.0);
-    let height_mask = smoothstep(-0.3, 0.5, in.height);
+    let height_mask = smoothstep(-0.2, 0.6, in.height);
     let foam_uv = (in.world_pos.xz * ocean_settings.foam_scale) + ocean_settings.wind_vector * camera.time * ocean_settings.foam_speed;
-    let foam_texture = fbm(foam_uv);
-    let foam_threshold = ocean_settings.foam_threshold - (foam_texture * 0.4); 
-    let foam_factor = smoothstep(foam_threshold, foam_threshold + 0.1, jacobian_mask) * height_mask * ocean_settings.foam_scale;
+    let foam_val = get_foam(foam_uv, camera.time);
+    let wave_crest_mask = smoothstep(ocean_settings.foam_threshold, ocean_settings.foam_threshold + 0.2, jacobian_mask) * height_mask;
+    let foam_factor = smoothstep(0.4, 0.7, foam_val) * wave_crest_mask * ocean_settings.foam_scale;
 
-
-    let turbidity = smoothstep(0.8, 1.5, jacobian); // basically compression
+    let turbidity = smoothstep(0.1, 0.5, jacobian); // basically compression
     let base_mix = smoothstep(-2.0, 4.0, in.height);
     var water_base = mix(ocean_settings.deep_color.rgb, ocean_settings.shallow_color.rgb, base_mix);
-    water_base = mix(water_base, ocean_settings.sss_color.rgb * 0.5, turbidity * 0.3);
+    water_base = mix(water_base, ocean_settings.sss_color.rgb * 0.5, turbidity * 0.5);
+    water_base *= max(intensity, 0.1);
 
     let reflection_dampener = smoothstep(0.5, 1.0, jacobian);
-    let sky_reflection = textureSample(texture_skybox, sampler_skybox, reflect_dir).rgb * ocean_settings.reflection_scale * reflection_dampener * (1.0 - foam_factor);
-
     let rougness_dynamic = mix(ocean_settings.roughness, ocean_settings.foam_roughness, foam_factor);
     let alpha = rougness_dynamic * rougness_dynamic;
     let specular_val = cook_torrance(n_dot_light, n_dot_view, n_dot_half, alpha, fresnel_spec);
-    let specular = ocean_settings.sun_color.rgb * specular_val * ocean_settings.specular_scale * reflection_dampener * (1.0-foam_factor);
+    let specular = light_color * specular_val * ocean_settings.specular_scale * reflection_dampener * (1.0-foam_factor);
 
     var color = water_base + sss;
     
@@ -255,17 +274,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let parallax_offset = -view_dir.xz * ocean_settings.caustic_depth / max(view_dir.y, 0.1);
     let caustic_uv = (in.world_pos.xz * ocean_settings.caustic_scale) + parallax_offset;
     let caustic_pattern = get_caustics_procedural(caustic_uv, camera.time);
-    let sun_facing = pow(clamp(dot(normal, light_source_dir), 0.0, 1.0), 0.7);
+    let sun_facing = pow(clamp(dot(normal, sun_dir), 0.0, 1.0), 0.7);
     let foam_mask = 1.0 - foam_factor * 0.7;
     let dist_fade = 1.0 - smoothstep(50.0, ocean_settings.caustic_max_distance, dist);
     let choppiness_mask = smoothstep(0.7, 1.0, jacobian);
 
     let caustic_strength = sun_facing * foam_mask * dist_fade * depth_fade * view_angle_fade * choppiness_mask * 2.0;
-    let caustic_color = caustic_pattern * ocean_settings.caustic_color_tint.rgb * caustic_strength;
+    let caustic_color = caustic_pattern * ocean_settings.caustic_color_tint.rgb * caustic_strength * max(intensity, 2.0);
 
     color += caustic_color * ocean_settings.sss_color.rgb * 0.6;
     
-    color = mix(color, sky_reflection, clamp(fresnel_sky, 0.0, 1.0));
+    //color = mix(color, sky_reflection, clamp(fresnel_sky, 0.0, 1.0));
+    color += ambient * AMBIENT_SCALE;
     color += specular;
     
     let foam_color = vec3<f32>(0.95, 0.98, 0.92);
@@ -480,4 +500,27 @@ fn voronoi_caustic(uv: vec2<f32>, time: f32) -> f32 {
     let edge_dist = second_min - min_dist;
     let caustic = 1.0 - smoothstep(0.0, 0.2, edge_dist);
     return pow(caustic, 1.5);
+}
+
+fn get_foam(uv: vec2<f32>, time: f32) -> f32 {
+    let warp_uv = uv * 0.5;
+    let warp_strength = 0.5;
+    let warp = vec2<f32>(
+        noise(warp_uv + vec2(time * 0.1, 0.0)),
+        noise(warp_uv + vec2(5.2, 1.3) - vec2(0.0, time * 0.1))
+    );
+
+    let p = uv + warp * warp_strength;
+
+    var value: f32 = 0.0;
+    var amplitude: f32 = 0.5;
+    var current_p = p;
+    
+    for (var i = 0u; i < 3u; i++) {
+        let n = noise(current_p); 
+        value += n * amplitude;
+        current_p *= 2.0; 
+        amplitude *= 0.5;
+    }
+    return pow(value, 1.5); 
 }

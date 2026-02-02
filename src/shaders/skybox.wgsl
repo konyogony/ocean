@@ -83,7 +83,7 @@ struct CameraUniform {
 
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
-@group(2) @binding(0) var<uniform> ocean_settings: OceanSettingsUniform;
+@group(1) @binding(0) var<uniform> ocean_settings: OceanSettingsUniform;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -160,8 +160,8 @@ fn cloud_density(p: vec2<f32>, t: f32) -> f32 {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let dir = normalize(in.tex_coords);
-    let day_cycle = fract(camera.time * DAY_CYCLE_SPEED);
-    let angle = day_cycle * 6.28318;
+    // let day_cycle = fract(camera.time * DAY_CYCLE_SPEED);
+    let angle = ocean_settings.daynight_cycle * 6.28318;
     
     let sun_dir = normalize(vec3(sin(angle), cos(angle), ocean_settings.sun_offset_z));
     let sun_up = sun_dir.y;
@@ -176,18 +176,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let horizon = mix(ocean_settings.sky_color_night_horizon.rgb, ocean_settings.sky_color_day_horizon.rgb, intensity);
     var col = mix(horizon, zenith, pow(max(dir.y, 0.0), 0.7));
 
-    let sunset_timing = exp(-pow(sun_up * 3.5, 2.0)) * smoothstep(-0.3, 0.3, sun_up);
+    let sunset_timing = exp(-pow(sun_up * 4.0, 2.0)) * smoothstep(-0.2, 0.4, sun_up);
     let sunset_angle = max(dot(dir, normalize(vec3(sun_dir.x, 0.0, sun_dir.z))), 0.0);
     let sunset_vertical = smoothstep(-0.1, 0.4, dir.y) * smoothstep(0.7, 0.2, dir.y);
     
-    let sunset_mix = ocean_settings.sky_color_sunset_orange.rgb * 0.7 + ocean_settings.sky_color_sunset_pink.rgb * 0.4;
-    col += sunset_mix * pow(sunset_angle, 3.0) * sunset_vertical * sunset_timing;
+    let sunset_mix = mix(ocean_settings.sky_color_sunset_pink.rgb, ocean_settings.sky_color_sunset_orange.rgb, 0.7);
+    col += sunset_mix * pow(sunset_angle, 1.5) * sunset_vertical * sunset_timing * 2.5;
     col += ocean_settings.sky_color_horizon_glow.rgb * pow(1.0 - abs(dir.y), 3.0) * sunset_timing * 0.3;
 
     let sun_dist = dot(dir, sun_dir);
     let sun_disk = smoothstep(ocean_settings.sun_size_inner, ocean_settings.sun_size_outer, sun_dist);
     let sun_halo = pow(max(sun_dist, 0.0), ocean_settings.sun_halo_power) * 0.5;
-    col += (sun_disk + sun_halo) * ocean_settings.sun_color.rgb * intensity;
+    col += (sun_disk + sun_halo) * mix(ocean_settings.sun_color.rgb, ocean_settings.sky_color_sunset_orange.rgb, sunset_timing) * intensity;
 
     var hit_moon = false;
     

@@ -154,6 +154,9 @@ impl State {
                                 self.settings_changed,
                                 self.preset_modified
                             );
+
+
+                            settings_slider_ui!(ui, "Time of day", &mut self.draft_settings.daynight_cycle, 0.0..=1.0, defaults.daynight_cycle, self.settings_changed, self.preset_modified);
                         });
                     ui.separator();
 
@@ -473,7 +476,7 @@ impl State {
                                 ui,
                                 "Caustic Depth",
                                 &mut self.draft_settings.caustic_depth,
-                                0.0..=1.0,
+                                0.0..=20.0,
                                 defaults.caustic_depth,
                                 self.settings_changed,
                                 self.preset_modified
@@ -551,6 +554,7 @@ impl State {
                             .default_open(false)
                             .show(ui, |ui| {
                                 ui.label("Simulated Sky");
+
                                 
                                 settings_slider_vec4_ui!(
                                     ui, "Day Zenith", &mut self.draft_settings.sky_color_day_zenith, 0.0..=1.0, defaults.sky_color_day_zenith, self.settings_changed, self.preset_modified

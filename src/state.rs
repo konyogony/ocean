@@ -607,7 +607,6 @@ impl State {
 
         let skybox = Skybox::new(
             &device,
-            &queue,
             &surface_config,
             &camera_bind_group_layout,
             &ocean_settings_bind_group_layout,
@@ -622,7 +621,6 @@ impl State {
                     &ocean_settings_bind_group_layout,
                     &camera_bind_group_layout,
                     &height_field_bind_group_layout,
-                    &skybox.skybox_texture_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -1051,7 +1049,7 @@ impl State {
             render_pass.set_pipeline(&self.skybox.skybox_render_pipeline);
             // Camera in the middle?
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.skybox.skybox_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.ocean_settings_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.skybox.skybox_vertex_buffer.slice(..));
             render_pass.set_index_buffer(
                 self.skybox.skybox_index_buffer.slice(..),
@@ -1071,7 +1069,6 @@ impl State {
             render_pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(2, height_field_bind_group, &[]);
-            render_pass.set_bind_group(3, &self.skybox.skybox_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
