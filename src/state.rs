@@ -66,10 +66,24 @@ pub struct State {
     pub fft_compute_pipeline: wgpu::ComputePipeline,
     pub spectrum_pipeline: wgpu::ComputePipeline,
 
+    pub foam_generation_pipeline: wgpu::ComputePipeline,
+    pub foam_advection_pipeline: wgpu::ComputePipeline,
+    pub foam_texture_ping: Texture,
+    pub foam_texture_pong: Texture,
+    pub foam_compute_bind_groups: [wgpu::BindGroup; 2],
+    pub foam_render_bind_groups: [wgpu::BindGroup; 2],
+    pub foam_compute_layout: wgpu::BindGroupLayout,
+    pub foam_render_layout: wgpu::BindGroupLayout,
+    pub foam_output_is_a: bool,
+
     pub fft_texture_ping_h_dx: Texture,
     pub fft_texture_pong_h_dx: Texture,
     pub fft_texture_ping_dz: Texture,
     pub fft_texture_pong_dz: Texture,
+
+    pub height_field_compute_bind_group_ping: wgpu::BindGroup,
+    pub height_field_compute_bind_group_pong: wgpu::BindGroup,
+    pub height_field_compute_bind_group_layout: wgpu::BindGroupLayout,
 
     pub height_field_bind_group_ping: wgpu::BindGroup,
     pub height_field_bind_group_pong: wgpu::BindGroup,
@@ -166,8 +180,7 @@ impl State {
 
         // Ocean settings setup
         let ocean_seed = rand::rng().random::<u32>();
-        let current_ocean_preset =
-            OceanPreset::load_preset("deep_blue_cinematic", Path::new("presets/"));
+        let current_ocean_preset = OceanPreset::load_preset("calm", Path::new("presets/"));
         let ocean_settings_uniform = OceanSettingsBuilder::from_preset(&current_ocean_preset)
             .ocean_seed(ocean_seed)
             .build();
@@ -536,7 +549,8 @@ impl State {
                     // h_dx
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT
+                            | wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                             view_dimension: wgpu::TextureViewDimension::D2,
@@ -547,7 +561,8 @@ impl State {
                     // dz
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT
+                            | wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                             view_dimension: wgpu::TextureViewDimension::D2,
@@ -558,7 +573,8 @@ impl State {
                     // sampler
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT
+                            | wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
@@ -603,6 +619,83 @@ impl State {
             ],
         });
 
+        let height_field_compute_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("height_field_compute_bind_group_layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::ReadOnly,
+                            format: FFT_TEXTURE_FORMAT,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::ReadOnly,
+                            format: FFT_TEXTURE_FORMAT,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        let height_field_compute_bind_group_ping =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("height_field_compute_bind_group_ping"),
+                layout: &height_field_compute_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&fft_texture_ping_h_dx.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&fft_texture_ping_dz.view),
+                    },
+                ],
+            });
+
+        let height_field_compute_bind_group_pong =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("height_field_compute_bind_group_pong"),
+                layout: &height_field_compute_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&fft_texture_pong_h_dx.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&fft_texture_pong_dz.view),
+                    },
+                ],
+            });
+
+        let (
+            foam_texture_ping,
+            foam_texture_pong,
+            foam_generation_pipeline,
+            foam_advection_pipeline,
+            foam_compute_layout,
+            foam_render_layout,
+            foam_compute_bind_groups,
+            foam_render_bind_groups,
+        ) = Self::init_foam(
+            &device,
+            &ocean_settings_uniform,
+            &ocean_settings_bind_group_layout,
+            &height_field_bind_group_layout,
+            &height_field_compute_bind_group_layout,
+            &camera_bind_group_layout,
+        );
+
         // Creating the skybox
 
         let skybox = Skybox::new(
@@ -621,6 +714,7 @@ impl State {
                     &ocean_settings_bind_group_layout,
                     &camera_bind_group_layout,
                     &height_field_bind_group_layout,
+                    &foam_render_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -789,10 +883,22 @@ impl State {
             fft_texture_ping_dz,
             fft_texture_pong_dz,
             fft_compute_pipeline,
+            foam_render_layout,
+            foam_compute_layout,
+            foam_advection_pipeline,
+            foam_compute_bind_groups,
+            foam_output_is_a: true,
+            foam_texture_ping,
+            foam_texture_pong,
+            foam_generation_pipeline,
+            foam_render_bind_groups,
             fft_uniform_size,
             spectrum_pipeline,
             height_field_bind_group_ping,
             height_field_bind_group_pong,
+            height_field_compute_bind_group_layout,
+            height_field_compute_bind_group_ping,
+            height_field_compute_bind_group_pong,
             initial_data_buffer,
             initial_data_group_layout,
             avg_magnitude,
@@ -918,6 +1024,7 @@ impl State {
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
         self.compute_fft();
+        self.update_foam();
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -1064,11 +1171,18 @@ impl State {
                 &self.height_field_bind_group_pong
             };
 
+            let foam_bind_group = if self.foam_output_is_a {
+                &self.foam_render_bind_groups[0]
+            } else {
+                &self.foam_render_bind_groups[1]
+            };
+
             // Ocean second
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(2, height_field_bind_group, &[]);
+            render_pass.set_bind_group(3, foam_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);

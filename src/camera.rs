@@ -83,8 +83,10 @@ pub struct CameraUniform {
     pub view_proj: [[f32; 4]; 4],
     pub view_proj_sky: [[f32; 4]; 4],
     pub camera_pos: [f32; 3],
+    pub _pad1: f32,
     pub time: f32,
-    pub _padding: u32,
+    pub delta_time: f32,
+    pub _padding: [f32; 2],
 }
 
 impl Default for CameraUniform {
@@ -99,8 +101,10 @@ impl CameraUniform {
             view_proj: cgmath::Matrix4::identity().into(),
             view_proj_sky: cgmath::Matrix4::identity().into(),
             camera_pos: [0.0; 3],
+            _pad1: 0.0,
             time: 0.0,
-            _padding: 0,
+            delta_time: 0.0,
+            _padding: [0.0, 0.0],
         }
     }
 
@@ -112,7 +116,8 @@ impl CameraUniform {
     }
 
     pub fn increment_time(&mut self, step: f32) {
-        self.time += step
+        self.time += step;
+        self.delta_time = step;
     }
 }
 

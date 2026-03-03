@@ -207,6 +207,46 @@ impl State {
                 ],
                 label: None,
             });
+
+        self.height_field_compute_bind_group_ping =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("height_field_compute_bind_group_ping"),
+                layout: &self.height_field_compute_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.fft_texture_ping_h_dx.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.fft_texture_ping_dz.view,
+                        ),
+                    },
+                ],
+            });
+
+        self.height_field_compute_bind_group_pong =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("height_field_compute_bind_group_pong"),
+                layout: &self.height_field_compute_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.fft_texture_pong_h_dx.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.fft_texture_pong_dz.view,
+                        ),
+                    },
+                ],
+            });
     }
 
     pub fn populate_fft_bind_groups(

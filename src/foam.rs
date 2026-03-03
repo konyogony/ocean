@@ -1,0 +1,267 @@
+use crate::settings::OceanSettingsUniform;
+use crate::state::State;
+use crate::texture::{Texture, FFT_TEXTURE_FORMAT};
+
+impl State {
+    pub fn update_foam(&mut self) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Foam encoder"),
+            });
+
+        let fft_read_bind_group = if self.fft_output_is_a {
+            &self.height_field_compute_bind_group_ping
+        } else {
+            &self.height_field_compute_bind_group_pong
+        };
+        let foam_compute_bind_group = if self.foam_output_is_a {
+            &self.foam_compute_bind_groups[0]
+        } else {
+            &self.foam_compute_bind_groups[1]
+        };
+
+        // first we generate
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.foam_generation_pipeline);
+            pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
+            pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            pass.set_bind_group(2, foam_compute_bind_group, &[]);
+            pass.set_bind_group(3, fft_read_bind_group, &[]);
+            pass.dispatch_workgroups(
+                self.ocean_settings_uniform.fft_subdivisions / 16,
+                self.ocean_settings_uniform.fft_subdivisions / 16,
+                1,
+            );
+        }
+
+        let foam_advection_pass_bind_group = if self.foam_output_is_a {
+            &self.foam_compute_bind_groups[1]
+        } else {
+            &self.foam_compute_bind_groups[0]
+        };
+
+        // Advection pass
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.foam_advection_pipeline);
+            pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
+            pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            pass.set_bind_group(2, foam_advection_pass_bind_group, &[]);
+            pass.set_bind_group(3, fft_read_bind_group, &[]);
+            pass.dispatch_workgroups(
+                self.ocean_settings_uniform.fft_subdivisions / 16,
+                self.ocean_settings_uniform.fft_subdivisions / 16,
+                1,
+            );
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        self.foam_output_is_a = !self.foam_output_is_a;
+    }
+
+    pub fn init_foam(
+        device: &wgpu::Device,
+        ocean_settings_uniform: &OceanSettingsUniform,
+        ocean_settings_bind_group_layout: &wgpu::BindGroupLayout,
+        height_field_render_bind_group_layout: &wgpu::BindGroupLayout,
+        height_field_compute_bind_group_layout: &wgpu::BindGroupLayout,
+        camera_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> (
+        Texture,
+        Texture,
+        wgpu::ComputePipeline, // gen pipeline
+        wgpu::ComputePipeline, // adv piipeline
+        wgpu::BindGroupLayout, // compute layout
+        wgpu::BindGroupLayout, // render layour
+        [wgpu::BindGroup; 2],  // compute bind groups
+        [wgpu::BindGroup; 2],  // render bind groups
+    ) {
+        let foam_texture_ping = Texture::create_storage_texture(
+            device,
+            ocean_settings_uniform.fft_subdivisions,
+            "foam_texture_ping",
+        );
+
+        let foam_texture_pong = Texture::create_storage_texture(
+            device,
+            ocean_settings_uniform.fft_subdivisions,
+            "foam_texture_pong",
+        );
+
+        let foam_compute_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Foam Bind Group Compute Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        count: None,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::ReadOnly,
+                            format: FFT_TEXTURE_FORMAT,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        count: None,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: FFT_TEXTURE_FORMAT,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        count: None,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    },
+                ],
+            });
+
+        let foam_render_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Foam Bind Group Render Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+
+        let foam_compute_bind_groups = [
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Foam Bind Group Ping"),
+                layout: &foam_compute_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&foam_texture_ping.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&foam_texture_pong.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&foam_texture_ping.sampler),
+                    },
+                ],
+            }),
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Foam Bind Group Pong"),
+                layout: &foam_compute_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&foam_texture_pong.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&foam_texture_ping.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&foam_texture_ping.sampler),
+                    },
+                ],
+            }),
+        ];
+
+        let foam_render_bind_groups = [
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Foam Render Bind Group Ping"),
+                layout: &foam_render_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&foam_texture_ping.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&foam_texture_ping.sampler),
+                    },
+                ],
+            }),
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Foam Render Bind Group Pong"),
+                layout: &foam_render_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&foam_texture_pong.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&foam_texture_ping.sampler),
+                    },
+                ],
+            }),
+        ];
+
+        let foam_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Foam Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/foam.wgsl").into()),
+        });
+
+        let foam_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Foam Pipeline Layout"),
+            bind_group_layouts: &[
+                ocean_settings_bind_group_layout,
+                camera_bind_group_layout,
+                &foam_compute_layout,
+                height_field_compute_bind_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let foam_generation_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Foam Generation Pipeline"),
+                layout: Some(&foam_pipeline_layout),
+                module: &foam_shader,
+                entry_point: Some("compute_foam"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
+        let foam_advection_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Foam Generation Pipeline"),
+                layout: Some(&foam_pipeline_layout),
+                module: &foam_shader,
+                entry_point: Some("advect_foam"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
+        (
+            foam_texture_ping,
+            foam_texture_pong,
+            foam_generation_pipeline,
+            foam_advection_pipeline,
+            foam_compute_layout,
+            foam_render_layout,
+            foam_compute_bind_groups,
+            foam_render_bind_groups,
+        )
+    }
+}

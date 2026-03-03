@@ -86,7 +86,10 @@ struct CameraUniform {
     view_proj: mat4x4<f32>,
     view_proj_sky: mat4x4<f32>,
     camera_pos: vec3<f32>,
+    _pad1: f32,
     time: f32,
+    delta_time: f32,
+    _padding: vec2<f32>,
 };
 
 struct VertexInput {
@@ -111,6 +114,9 @@ struct VertexOutput {
 @group(2) @binding(0) var texture_h_dx: texture_2d<f32>;
 @group(2) @binding(1) var texture_dz: texture_2d<f32>;
 @group(2) @binding(2) var sampler_ocean: sampler;
+
+@group(3) @binding(0) var foam_texture: texture_2d<f32>;
+@group(3) @binding(1) var sampler_foam: sampler;
 
 @vertex
 fn vs_main(model: VertexInput) -> VertexOutput {
@@ -191,8 +197,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let angle = ocean_settings.daynight_cycle * 6.28318;
     let sun_dir = normalize(vec3(sin(angle), cos(angle), ocean_settings.sun_offset_z));
     let sun_up = sun_dir.y;
-    let intensity = smoothstep(-0.2, 0.25, sun_up);
-    let night_fade = clamp(-sun_up * 4.0, 0.0, 1.0);
+    let intensity = smoothstep(-0.2, 0.5, sun_up);
+    let night_fade = clamp(-sun_up * 3.0, 0.0, 1.0);
     let moon_base = -sun_dir;
     let moon_dir = normalize(moon_base + ocean_settings.moon_phase_offset);
     let sun_light_color = ocean_settings.sun_color.rgb * intensity;
@@ -250,8 +256,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // better foam algo
     let jacobian_mask = 1.0 - clamp(jacobian, 0.0, 1.0);
     let height_mask = smoothstep(-0.2, 0.6, in.height);
-    let foam_uv = (in.world_pos.xz * ocean_settings.foam_scale) + ocean_settings.wind_vector * camera.time * ocean_settings.foam_speed;
-    let foam_val = get_foam(foam_uv, camera.time);
+    let foam_uv = in.world_pos.xz * ocean_settings.foam_scale; 
+    let foam_val = textureSample(foam_texture, sampler_foam, foam_uv).r;
     let wave_crest_mask = smoothstep(ocean_settings.foam_threshold, ocean_settings.foam_threshold + 0.2, jacobian_mask) * height_mask;
     let foam_factor = smoothstep(0.4, 0.7, foam_val) * wave_crest_mask * ocean_settings.foam_scale;
 
@@ -644,25 +650,3 @@ fn voronoi_caustic(uv: vec2<f32>, time: f32) -> f32 {
     return pow(caustic, 1.5);
 }
 
-fn get_foam(uv: vec2<f32>, time: f32) -> f32 {
-    let warp_uv = uv * 0.5;
-    let warp_strength = 0.5;
-    let warp = vec2<f32>(
-        noise(warp_uv + vec2(time * 0.1, 0.0)),
-        noise(warp_uv + vec2(5.2, 1.3) - vec2(0.0, time * 0.1))
-    );
-
-    let p = uv + warp * warp_strength;
-
-    var value: f32 = 0.0;
-    var amplitude: f32 = 0.5;
-    var current_p = p;
-    
-    for (var i = 0u; i < 3u; i++) {
-        let n = noise(current_p); 
-        value += n * amplitude;
-        current_p *= 2.0; 
-        amplitude *= 0.5;
-    }
-    return pow(value, 1.5); 
-}

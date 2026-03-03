@@ -17,6 +17,7 @@ pub const DESC: &str = env!("CARGO_PKG_DESCRIPTION");
 
 pub mod camera;
 pub mod fft;
+pub mod foam;
 pub mod settings;
 pub mod skybox;
 pub mod state;
