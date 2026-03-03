@@ -7,7 +7,7 @@ impl State {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Foam encoder"),
+                label: Some("foam_encoder"),
             });
 
         let fft_read_bind_group = if self.fft_output_is_a {
@@ -93,7 +93,7 @@ impl State {
 
         let foam_compute_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Foam Bind Group Compute Layout"),
+                label: Some("foam_bind_group_compute_layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -126,7 +126,7 @@ impl State {
 
         let foam_render_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Foam Bind Group Render Layout"),
+                label: Some("foam_bind_group_render_layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -149,7 +149,7 @@ impl State {
 
         let foam_compute_bind_groups = [
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Foam Bind Group Ping"),
+                label: Some("foam_bind_group_ping"),
                 layout: &foam_compute_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -167,7 +167,7 @@ impl State {
                 ],
             }),
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Foam Bind Group Pong"),
+                label: Some("foam_bind_group_pong"),
                 layout: &foam_compute_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -188,7 +188,7 @@ impl State {
 
         let foam_render_bind_groups = [
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Foam Render Bind Group Ping"),
+                label: Some("foam_render_bind_group_ping"),
                 layout: &foam_render_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -202,7 +202,7 @@ impl State {
                 ],
             }),
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Foam Render Bind Group Pong"),
+                label: Some("foam_render_bind_group_pong"),
                 layout: &foam_render_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -218,12 +218,12 @@ impl State {
         ];
 
         let foam_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Foam Shader"),
+            label: Some("foam_shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/foam.wgsl").into()),
         });
 
         let foam_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Foam Pipeline Layout"),
+            label: Some("foam_pipeline_layout"),
             bind_group_layouts: &[
                 ocean_settings_bind_group_layout,
                 camera_bind_group_layout,
@@ -235,7 +235,7 @@ impl State {
 
         let foam_generation_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Foam Generation Pipeline"),
+                label: Some("foam_generation_pipeline"),
                 layout: Some(&foam_pipeline_layout),
                 module: &foam_shader,
                 entry_point: Some("compute_foam"),
@@ -245,7 +245,7 @@ impl State {
 
         let foam_advection_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Foam Generation Pipeline"),
+                label: Some("foam_generation_pipeline"),
                 layout: Some(&foam_pipeline_layout),
                 module: &foam_shader,
                 entry_point: Some("advect_foam"),

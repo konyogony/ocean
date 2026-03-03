@@ -1,5 +1,5 @@
 use crate::camera::{Camera, CameraController, CameraUniform};
-use crate::settings::{OceanPreset, OceanSettingsBuilder, OceanSettingsUniform};
+use crate::settings::{OceanPreset, OceanSettingsBuilder, OceanSettingsUniform, MAX_CASCADES};
 use crate::skybox::Skybox;
 use crate::texture::{Texture, DEPTH_FORMAT, FFT_TEXTURE_FORMAT};
 use crate::vertex::{InitialData, Vertex};
@@ -22,6 +22,8 @@ pub struct FFTUniform {
     // This will go from 0 to log_2(N) - 1
     pub stage: u32,
     pub is_vertical: u32,
+    pub cascade_index: u32,
+    pub _pad: u32,
 }
 
 pub struct State {
@@ -50,8 +52,6 @@ pub struct State {
     pub fps: f32,
     pub frame_counter: u32,
     pub fps_timer: f32,
-    pub max_magnitude: f32,
-    pub avg_magnitude: f32,
     pub gpu_name: String,
     pub cpu_name: String,
     pub kernel_version: String,
@@ -76,35 +76,31 @@ pub struct State {
     pub foam_render_layout: wgpu::BindGroupLayout,
     pub foam_output_is_a: bool,
 
-    pub fft_texture_ping_h_dx: Texture,
-    pub fft_texture_pong_h_dx: Texture,
-    pub fft_texture_ping_dz: Texture,
-    pub fft_texture_pong_dz: Texture,
+    pub fft_textures_ping_h_dx: [Texture; MAX_CASCADES],
+    pub fft_textures_pong_h_dx: [Texture; MAX_CASCADES],
+    pub fft_textures_ping_dz: [Texture; MAX_CASCADES],
+    pub fft_textures_pong_dz: [Texture; MAX_CASCADES],
 
-    pub height_field_compute_bind_group_ping: wgpu::BindGroup,
-    pub height_field_compute_bind_group_pong: wgpu::BindGroup,
+    pub height_field_compute_bind_groups_ping: [wgpu::BindGroup; MAX_CASCADES],
+    pub height_field_compute_bind_groups_pong: [wgpu::BindGroup; MAX_CASCADES],
+    pub height_field_render_bind_groups_ping: [wgpu::BindGroup; MAX_CASCADES],
+    pub height_field_render_bind_groups_pong: [wgpu::BindGroup; MAX_CASCADES],
+
     pub height_field_compute_bind_group_layout: wgpu::BindGroupLayout,
+    pub height_field_render_bind_group_layout: wgpu::BindGroupLayout,
 
-    pub height_field_bind_group_ping: wgpu::BindGroup,
-    pub height_field_bind_group_pong: wgpu::BindGroup,
     pub fft_bind_groups_ping: Vec<wgpu::BindGroup>,
     pub fft_bind_groups_pong: Vec<wgpu::BindGroup>,
 
     pub fft_group_layout: wgpu::BindGroupLayout,
-    pub height_field_bind_group_layout: wgpu::BindGroupLayout,
     pub fft_config_buffer: wgpu::Buffer,
     pub fft_uniform_buffer: wgpu::Buffer,
     pub fft_uniform_size: u64,
     pub step_size: u64,
-    pub fft_output_is_a: bool,
+    pub fft_output_is_a: [bool; MAX_CASCADES],
 
-    pub fft_min: f32,
-    pub fft_max: f32,
-    pub fft_avg: f32,
-    pub fft_samples_checked: u32,
-
-    pub initial_data_group: wgpu::BindGroup,
-    pub initial_data_buffer: wgpu::Buffer,
+    pub initial_data_groups: [wgpu::BindGroup; MAX_CASCADES],
+    pub initial_data_buffers: [wgpu::Buffer; MAX_CASCADES],
     pub initial_data_group_layout: wgpu::BindGroupLayout,
 
     pub current_ocean_preset: OceanPreset,
@@ -180,14 +176,14 @@ impl State {
 
         // Ocean settings setup
         let ocean_seed = rand::rng().random::<u32>();
-        let current_ocean_preset = OceanPreset::load_preset("calm", Path::new("presets/"));
+        let current_ocean_preset = OceanPreset::load_preset("calm2", Path::new("presets/"));
         let ocean_settings_uniform = OceanSettingsBuilder::from_preset(&current_ocean_preset)
             .ocean_seed(ocean_seed)
             .build();
         let available_presets = OceanPreset::get_preset_list(Path::new("presets/"))?;
 
         let ocean_settings_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Ocean Settings Buffer"),
+            label: Some("ocean_settings_buffer"),
             contents: bytemuck::cast_slice(&[ocean_settings_uniform]),
             usage: wgpu::BufferUsages::UNIFORM
                 | wgpu::BufferUsages::COPY_SRC
@@ -245,7 +241,7 @@ impl State {
         camera_uniform.update_view_proj(&mut camera);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera Buffer"),
+            label: Some("camera_buffer"),
             contents: bytemuck::cast_slice(&[camera_uniform]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -285,7 +281,7 @@ impl State {
         // Or use include_wgsl! next time
         // UPD: include_str!() seems to actually perform better
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
+            label: Some("shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/render.wgsl").into()),
         });
 
@@ -300,32 +296,39 @@ impl State {
         let twiddle_factor_array =
             InitialData::generate_twiddle_factors(ocean_settings_uniform.fft_subdivisions);
 
-        let (initial_data_array, max_magnitude, avg_magnitude) = InitialData::generate_data(
-            ocean_settings_uniform.fft_size,
-            ocean_settings_uniform.fft_subdivisions,
-            ocean_settings_uniform.wind_vector,
-            ocean_settings_uniform.l_small,
-            ocean_settings_uniform.amplitude,
-            ocean_settings_uniform.max_w,
-            ocean_settings_uniform.ocean_seed,
-        );
-
-        let initial_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Initial Data Buffer"),
-            contents: bytemuck::cast_slice(&initial_data_array),
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
+        let initial_data_arrays = std::array::from_fn(|i| {
+            InitialData::generate_data(
+                ocean_settings_uniform.cascade_sizes[i],
+                ocean_settings_uniform.fft_subdivisions,
+                ocean_settings_uniform.wind_vector,
+                ocean_settings_uniform.l_small,
+                ocean_settings_uniform.cascade_amplitudes[i],
+                ocean_settings_uniform.max_w,
+                ocean_settings_uniform.ocean_seed,
+            )
         });
 
-        let twiddle_factor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("FFT Twiddle Buffer"),
-            contents: bytemuck::cast_slice(&twiddle_factor_array),
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
+        let initial_data_buffers = std::array::from_fn(|i| {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("initial_data_buffer_{i}")),
+                contents: bytemuck::cast_slice(&initial_data_arrays[i]),
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+            })
         });
 
+        let twiddle_factor_buffers = std::array::from_fn(|i| {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("FFT_twiddle_buffer_{i}")),
+                contents: bytemuck::cast_slice(&twiddle_factor_array),
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+            })
+        });
+
+        // always only 2.
         let initial_data_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -353,43 +356,53 @@ impl State {
                 label: Some("initial_data_group_layout"),
             });
 
-        let initial_data_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &initial_data_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: initial_data_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: twiddle_factor_buffer.as_entire_binding(),
-                },
-            ],
-            label: Some("initial_data_group"),
+        let initial_data_groups = std::array::from_fn(|i| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &initial_data_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: initial_data_buffers[i].as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: twiddle_factor_buffers[i].as_entire_binding(),
+                    },
+                ],
+                label: Some(&format!("initial_data_group_{i}")),
+            })
         });
 
         // Updated ping-pong texture model
 
-        let fft_texture_ping_h_dx = Texture::create_storage_texture(
-            &device,
-            ocean_settings_uniform.fft_subdivisions,
-            "fft_texture_ping_h_dx",
-        );
-        let fft_texture_pong_h_dx = Texture::create_storage_texture(
-            &device,
-            ocean_settings_uniform.fft_subdivisions,
-            "fft_texture_pong_h_dx",
-        );
-        let fft_texture_ping_dz = Texture::create_storage_texture(
-            &device,
-            ocean_settings_uniform.fft_subdivisions,
-            "fft_texture_ping_dz",
-        );
-        let fft_texture_pong_dz = Texture::create_storage_texture(
-            &device,
-            ocean_settings_uniform.fft_subdivisions,
-            "fft_texture_pong_dz",
-        );
+        let fft_textures_ping_h_dx = std::array::from_fn(|i| {
+            Texture::create_storage_texture(
+                &device,
+                ocean_settings_uniform.fft_subdivisions,
+                &format!("fft_texture_ping_h_dx_{i}"),
+            )
+        });
+        let fft_textures_pong_h_dx = std::array::from_fn(|i| {
+            Texture::create_storage_texture(
+                &device,
+                ocean_settings_uniform.fft_subdivisions,
+                &format!("fft_texture_pong_h_dx_{i}"),
+            )
+        });
+        let fft_textures_ping_dz = std::array::from_fn(|i| {
+            Texture::create_storage_texture(
+                &device,
+                ocean_settings_uniform.fft_subdivisions,
+                &format!("fft_texture_ping_dz_{i}"),
+            )
+        });
+        let fft_textures_pong_dz = std::array::from_fn(|i| {
+            Texture::create_storage_texture(
+                &device,
+                ocean_settings_uniform.fft_subdivisions,
+                &format!("fft_texture_pong_dz_{i}"),
+            )
+        });
 
         // Ping-Pong buffer model
         let fft_uniform_size = std::mem::size_of::<FFTUniform>() as u64;
@@ -398,23 +411,34 @@ impl State {
 
         let total_size = step_size * ocean_settings_uniform.pass_num as u64 * 2;
         let fft_config_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("FFT Config Array"),
+            label: Some("fft_config_array"),
             size: total_size,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        for stage in 0..ocean_settings_uniform.pass_num {
-            for is_vertical in 0..2 {
-                let i = stage * 2 + is_vertical;
-                let uniform = FFTUniform { stage, is_vertical };
-                let offset = i as u64 * step_size;
-                queue.write_buffer(&fft_config_buffer, offset, bytemuck::cast_slice(&[uniform]));
+        for c in 0..MAX_CASCADES {
+            for stage in 0..ocean_settings_uniform.pass_num {
+                for is_vertical in 0..2 {
+                    let i = stage * 2 + is_vertical;
+                    let uniform = FFTUniform {
+                        stage,
+                        is_vertical,
+                        cascade_index: c as u32,
+                        _pad: 0,
+                    };
+                    let offset = i as u64 * step_size;
+                    queue.write_buffer(
+                        &fft_config_buffer,
+                        offset,
+                        bytemuck::cast_slice(&[uniform]),
+                    );
+                }
             }
         }
 
         let fft_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("FFT Uniform Buffer"),
+            label: Some("fft_uniform_buffer"),
             size: std::mem::size_of::<FFTUniform>() as u64,
             usage: wgpu::BufferUsages::UNIFORM
                 | wgpu::BufferUsages::COPY_DST
@@ -424,62 +448,42 @@ impl State {
 
         let fft_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("fft_group_layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                // Read for h_dx
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::ReadOnly,
-                        format: FFT_TEXTURE_FORMAT,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                // Write for h_dx
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: FFT_TEXTURE_FORMAT,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                // Read for dz
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::ReadOnly,
-                        format: FFT_TEXTURE_FORMAT,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                // Write for dz
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: FFT_TEXTURE_FORMAT,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-            ],
+            entries: &std::array::from_fn(|i| {
+                if i == 0 {
+                    // Always the uniform buffer first.
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }
+                } else {
+                    let cascade_index = (i - 1) / 4;
+                    let local = (i - 1) % 4;
+
+                    let binding = i as u32;
+                    let access = match local {
+                        0 | 2 => wgpu::StorageTextureAccess::ReadOnly,
+                        1 | 3 => wgpu::StorageTextureAccess::WriteOnly,
+                        _ => unreachable!(),
+                    };
+
+                    wgpu::BindGroupLayoutEntry {
+                        binding,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access,
+                            format: FFT_TEXTURE_FORMAT,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    }
+                }
+            }),
         });
 
         let (fft_bind_groups_ping, fft_bind_groups_pong) = Self::populate_fft_bind_groups(
@@ -487,21 +491,21 @@ impl State {
             &ocean_settings_uniform,
             &fft_group_layout,
             &fft_config_buffer,
-            &fft_texture_ping_h_dx,
-            &fft_texture_pong_h_dx,
-            &fft_texture_ping_dz,
-            &fft_texture_pong_dz,
+            &fft_textures_ping_h_dx,
+            &fft_textures_pong_h_dx,
+            &fft_textures_ping_dz,
+            &fft_textures_pong_dz,
             fft_uniform_size,
             step_size,
         );
 
         let fft_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("FFT Shader"),
+            label: Some("fft_shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/fft.wgsl").into()),
         });
 
         let fft_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("FFT Pipeline Layout"),
+            label: Some("fft_pipeline_layout"),
             bind_group_layouts: &[
                 &ocean_settings_bind_group_layout,
                 &fft_group_layout,
@@ -513,7 +517,7 @@ impl State {
 
         let fft_compute_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("FFT Compute Layout"),
+                label: Some("fft_compute_layout"),
                 layout: Some(&fft_pipeline_layout),
                 module: &fft_shader,
                 entry_point: Some("fft_step"),
@@ -523,7 +527,7 @@ impl State {
 
         let spectrum_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Spectrum Pipeline Layout"),
+                label: Some("spectrum_pipeline_layout"),
                 bind_group_layouts: &[
                     &ocean_settings_bind_group_layout,
                     &fft_group_layout,
@@ -534,7 +538,7 @@ impl State {
             });
 
         let spectrum_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Spectrum Update Pipeline"),
+            label: Some("spectrum_update_pipeline"),
             layout: Some(&spectrum_pipeline_layout),
             module: &fft_shader,
             entry_point: Some("update_spectrum"),
@@ -542,9 +546,9 @@ impl State {
             cache: None,
         });
 
-        let height_field_bind_group_layout =
+        let height_field_render_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("height_field_bind_group_layout"),
+                label: Some("height_field_render_bind_group_layout"),
                 entries: &[
                     // h_dx
                     wgpu::BindGroupLayoutEntry {
@@ -581,42 +585,54 @@ impl State {
                 ],
             });
 
-        let height_field_bind_group_ping = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("height_field_bind_group_ping"),
-            layout: &height_field_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&fft_texture_ping_h_dx.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&fft_texture_ping_dz.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&fft_texture_ping_h_dx.sampler),
-                },
-            ],
+        let height_field_render_bind_groups_ping = std::array::from_fn(|i| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("height_field_bind_group_ping_{i}")),
+                layout: &height_field_render_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            &fft_textures_ping_h_dx[i].view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&fft_textures_ping_dz[i].view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(
+                            &fft_textures_ping_h_dx[i].sampler,
+                        ),
+                    },
+                ],
+            })
         });
 
-        let height_field_bind_group_pong = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("height_field_bind_group_pong"),
-            layout: &height_field_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&fft_texture_pong_h_dx.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&fft_texture_pong_dz.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&fft_texture_pong_h_dx.sampler),
-                },
-            ],
+        let height_field_render_bind_groups_pong = std::array::from_fn(|i| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("height_field_bind_group_pong_{i}")),
+                layout: &height_field_render_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            &fft_textures_pong_h_dx[i].view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&fft_textures_pong_dz[i].view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(
+                            &fft_textures_pong_h_dx[i].sampler,
+                        ),
+                    },
+                ],
+            })
         });
 
         let height_field_compute_bind_group_layout =
@@ -646,37 +662,43 @@ impl State {
                 ],
             });
 
-        let height_field_compute_bind_group_ping =
+        let height_field_compute_bind_groups_ping = std::array::from_fn(|i| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("height_field_compute_bind_group_ping"),
+                label: Some(&format!("height_field_compute_bind_group_ping_{i}")),
                 layout: &height_field_compute_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&fft_texture_ping_h_dx.view),
+                        resource: wgpu::BindingResource::TextureView(
+                            &fft_textures_ping_h_dx[i].view,
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&fft_texture_ping_dz.view),
+                        resource: wgpu::BindingResource::TextureView(&fft_textures_ping_dz[i].view),
                     },
                 ],
-            });
+            })
+        });
 
-        let height_field_compute_bind_group_pong =
+        let height_field_compute_bind_groups_pong = std::array::from_fn(|i| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("height_field_compute_bind_group_pong"),
+                label: Some(&format!("height_field_compute_bind_group_pong_{i}")),
                 layout: &height_field_compute_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&fft_texture_pong_h_dx.view),
+                        resource: wgpu::BindingResource::TextureView(
+                            &fft_textures_pong_h_dx[i].view,
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&fft_texture_pong_dz.view),
+                        resource: wgpu::BindingResource::TextureView(&fft_textures_pong_dz[i].view),
                     },
                 ],
-            });
+            })
+        });
 
         let (
             foam_texture_ping,
@@ -691,7 +713,7 @@ impl State {
             &device,
             &ocean_settings_uniform,
             &ocean_settings_bind_group_layout,
-            &height_field_bind_group_layout,
+            &height_field_bind_groups_layout,
             &height_field_compute_bind_group_layout,
             &camera_bind_group_layout,
         );
@@ -709,18 +731,18 @@ impl State {
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
+                label: Some("render_pipeline_layout"),
                 bind_group_layouts: &[
                     &ocean_settings_bind_group_layout,
                     &camera_bind_group_layout,
-                    &height_field_bind_group_layout,
+                    &height_field_bind_groups_layout,
                     &foam_render_layout,
                 ],
                 push_constant_ranges: &[],
             });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
+            label: Some("render_pipeline"),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -765,7 +787,7 @@ impl State {
         });
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
+            label: Some("vertex_buffer"),
             contents: bytemuck::cast_slice(&verticies),
             usage: wgpu::BufferUsages::VERTEX,
         });
@@ -773,7 +795,7 @@ impl State {
         let num_indices = indicies.len() as u32;
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
+            label: Some("index_buffer"),
             contents: bytemuck::cast_slice(&indicies),
             usage: wgpu::BufferUsages::INDEX,
         });
@@ -841,11 +863,6 @@ impl State {
         let gpu_load = gpu_info.load_pct() as f32;
         let gpu_temp = gpu_info.temperature() as f32 / 1000.0;
 
-        let fft_min = -max_magnitude;
-        let fft_max = max_magnitude;
-        let fft_avg = avg_magnitude;
-        let fft_samples_checked = 4096;
-
         Ok(Self {
             window,
             device,
@@ -869,19 +886,19 @@ impl State {
             fps_timer: 0.0,
             frame_counter: 0,
             text_brush,
-            initial_data_group,
-            fft_output_is_a: true,
+            initial_data_groups,
+            fft_output_is_a: [true; MAX_CASCADES],
             fft_uniform_buffer,
             fft_group_layout,
             height_field_bind_group_layout,
             fft_bind_groups_pong,
             fft_bind_groups_ping,
-            fft_texture_ping_h_dx,
+            fft_textures_ping_h_dx,
             step_size,
             fft_config_buffer,
-            fft_texture_pong_h_dx,
-            fft_texture_ping_dz,
-            fft_texture_pong_dz,
+            fft_textures_pong_h_dx,
+            fft_textures_ping_dz,
+            fft_textures_pong_dz,
             fft_compute_pipeline,
             foam_render_layout,
             foam_compute_layout,
@@ -894,24 +911,18 @@ impl State {
             foam_render_bind_groups,
             fft_uniform_size,
             spectrum_pipeline,
-            height_field_bind_group_ping,
-            height_field_bind_group_pong,
+            height_field_render_bind_groups_ping,
+            height_field_render_bind_groups_pong,
             height_field_compute_bind_group_layout,
-            height_field_compute_bind_group_ping,
-            height_field_compute_bind_group_pong,
-            initial_data_buffer,
+            height_field_compute_bind_groups_ping,
+            height_field_compute_bind_groups_pong,
+            initial_data_buffers,
             initial_data_group_layout,
-            avg_magnitude,
-            max_magnitude,
             gpu_name,
             cpu_name,
             kernel_version,
             os_name,
             sys,
-            fft_min,
-            fft_max,
-            fft_avg,
-            fft_samples_checked,
             current_ocean_preset,
             available_presets,
             preset_name_to_load: String::from(""),
@@ -1012,7 +1023,6 @@ impl State {
             self.gpu_load = gpu_info.load_pct() as f32;
             self.gpu_temp = gpu_info.temperature() as f32 / 1000.0;
         }
-
         // Add dt so the cam speed isnt dependant on the FPS
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform.update_view_proj(&mut self.camera);
@@ -1044,7 +1054,7 @@ impl State {
         let mut encoder =
             self.device
                 .create_command_encoder(&wgpu::wgt::CommandEncoderDescriptor {
-                    label: Some("Render Encoder"),
+                    label: Some("render_encoder"),
                 });
 
         // egui stuff, for settings UI
@@ -1125,7 +1135,7 @@ impl State {
             .unwrap();
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Combined Render Pass"),
+                label: Some("combined_render_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -1164,11 +1174,12 @@ impl State {
             );
             render_pass.draw_indexed(0..self.skybox.num_skybox_indices, 0, 0..1);
 
+            // TODO: CHANGE 0
             // Instead of copying buffers, we can just switch between two bind groups
-            let height_field_bind_group = if self.fft_output_is_a {
-                &self.height_field_bind_group_ping
+            let height_field_bind_group = if self.fft_output_is_a[0] {
+                &self.height_field_render_bind_groups_ping[0]
             } else {
-                &self.height_field_bind_group_pong
+                &self.height_field_render_bind_groups_pong[0]
             };
 
             let foam_bind_group = if self.foam_output_is_a {

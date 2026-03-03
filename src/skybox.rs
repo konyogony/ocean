@@ -30,25 +30,25 @@ impl Skybox {
         ocean_settings_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Result<Self> {
         let skybox_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Skybox Shader"),
+            label: Some("skybox_shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/skybox.wgsl").into()),
         });
 
         let skybox_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Skybox Render Pipeline Layout"),
+                label: Some("skybox_render_pipeline_layout"),
                 bind_group_layouts: &[camera_bind_group_layout, ocean_settings_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
         let skybox_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Skybox VB"),
+            label: Some("skybox_vb"),
             contents: bytemuck::cast_slice(SKYBOX_VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let skybox_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Skybox IB"),
+            label: Some("skybox_ib"),
             contents: bytemuck::cast_slice(SKYBOX_INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
@@ -57,7 +57,7 @@ impl Skybox {
 
         let skybox_render_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Skybox Render Pipeline"),
+                label: Some("skybox_render_pipeline"),
                 layout: Some(&skybox_render_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &skybox_shader,

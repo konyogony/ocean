@@ -889,8 +889,6 @@ impl State {
             l_small: {l_small}\n\
             Wind Vector: {wind}\n\
             Max Angular Velocity: {max_w}\n\
-            Initial spectrum - Max: {i_max:.10}, Avg: {i_avg:.10}\n\
-            FFT Output (est) - Min: {fft_min:.6}, Max: {fft_max:.6}, Avg: {fft_avg:.6}\n\
             Tris: {tris}\n\
             ",
             VERSION = VERSION,
@@ -910,11 +908,6 @@ impl State {
             h = self.surface_config.height,
             size = self.ocean_settings_uniform.mesh_size,
             sub = self.ocean_settings_uniform.mesh_subdivisions,
-            i_max = self.max_magnitude,
-            i_avg = self.avg_magnitude,
-            fft_min = self.fft_min,
-            fft_max = self.fft_max,
-            fft_avg = self.fft_avg,
             gpu_name = self.gpu_name,
             gpu_load = self.gpu_load,
             gpu_temp = self.gpu_temp,

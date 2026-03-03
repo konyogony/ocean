@@ -68,7 +68,10 @@
   "cloud_speed": 0.05,
   "cloud_density_low": 0.4,
   "cloud_density_high": 0.8,
-  "daynight_cycle": 0.0
-}
-}
+  "daynight_cycle": 0.0,
+  "cascades": [
+    { "fft_size": 1000.0, "amplitude": 1.0 },
+    { "fft_size": 250.0, "amplitude": 0.3 },
+    { "fft_size": 50.0, "amplitude": 0.08 }
+  ]
 }

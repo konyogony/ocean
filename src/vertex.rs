@@ -89,15 +89,13 @@ impl InitialData {
         amplitude: f32,
         max_w: f32,
         seed: u32,
-    ) -> (Vec<Self>, f32, f32) {
+    ) -> Vec<Self> {
         let mut rng = StdRng::seed_from_u64(seed as u64);
         let mut array: Vec<Self> = Vec::new();
-        let mut max_magnitude = 0.0f32;
-        let mut sum_magnitude = 0.0f32;
 
         for n in 0..subdivisions {
             for m in 0..subdivisions {
-                let data = Self::new(
+                array.push(Self::new(
                     n,
                     m,
                     fft_size,
@@ -107,19 +105,11 @@ impl InitialData {
                     amplitude,
                     max_w,
                     &mut rng,
-                );
-                let mag = (data.initial_freq_domain[0].powi(2)
-                    + data.initial_freq_domain[1].powi(2))
-                .sqrt();
-                max_magnitude = max_magnitude.max(mag);
-                sum_magnitude += mag;
-                array.push(data);
+                ));
             }
         }
 
-        let avg_amplitude = sum_magnitude / (subdivisions * subdivisions) as f32;
-
-        (array, max_magnitude, avg_amplitude)
+        array
     }
 
     pub fn generate_twiddle_factors(fft_subdivisions: u32) -> Vec<[f32; 2]> {

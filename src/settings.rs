@@ -3,6 +3,8 @@ use std::{
     fs::{self, read_to_string, write},
     path::Path,
 };
+pub const MAX_CASCADES: usize = 6;
+pub const TOTAL_BINDINGS: usize = 1 + MAX_CASCADES * 4;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -77,6 +79,13 @@ pub struct OceanPreset {
     pub cloud_density_low: f32,
     pub cloud_density_high: f32,
     pub daynight_cycle: f32,
+    pub cascades: Vec<CascadePreset>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CascadePreset {
+    pub fft_size: f32,
+    pub amplitude: f32,
 }
 
 impl OceanPreset {
@@ -216,6 +225,7 @@ impl OceanPreset {
             cloud_density_low: builder.cloud_density_low,
             cloud_density_high: builder.cloud_density_high,
             daynight_cycle: builder.daynight_cycle,
+            cascades: builder.cascades,
         }
     }
 }
@@ -293,7 +303,10 @@ pub struct OceanSettingsUniform {
     pub pass_num: u32,
     pub ocean_seed: u32,
     pub caustic_octaves: u32,
-    pub _pad_final: [u32; 6],
+    pub cascade_sizes: [f32; MAX_CASCADES],
+    pub cascade_amplitudes: [f32; MAX_CASCADES],
+    pub cascade_count: u32,
+    pub _pad_cascade: [u32; 3],
 }
 
 pub struct OceanSettingsBuilder {
@@ -363,6 +376,7 @@ pub struct OceanSettingsBuilder {
     cloud_speed: f32,
     cloud_density_low: f32,
     cloud_density_high: f32,
+    cascades: Vec<CascadePreset>,
 }
 
 impl Default for OceanSettingsBuilder {
@@ -434,6 +448,20 @@ impl Default for OceanSettingsBuilder {
             cloud_speed: 0.05,
             cloud_density_low: 0.4,
             cloud_density_high: 0.8,
+            cascades: vec![
+                CascadePreset {
+                    fft_size: 1000.0,
+                    amplitude: 1.0,
+                },
+                CascadePreset {
+                    fft_size: 250.0,
+                    amplitude: 0.3,
+                },
+                CascadePreset {
+                    fft_size: 50.0,
+                    amplitude: 0.08,
+                },
+            ],
         }
     }
 }
@@ -759,6 +787,14 @@ impl OceanSettingsBuilder {
     }
 
     pub fn from_uniform(ocean_uniform: &OceanSettingsUniform) -> Self {
+        let mut cascade_vec = Vec::<CascadePreset>::new();
+        let cascade_count = ocean_uniform.cascade_count.min(MAX_CASCADES as u32) as usize;
+        for cascade_index in 0..cascade_count {
+            cascade_vec.push(CascadePreset {
+                fft_size: ocean_uniform.cascade_sizes[cascade_index],
+                amplitude: ocean_uniform.cascade_amplitudes[cascade_index],
+            });
+        }
         Self {
             mesh_size: ocean_uniform.mesh_size,
             mesh_subdivisions: ocean_uniform.mesh_subdivisions,
@@ -826,16 +862,28 @@ impl OceanSettingsBuilder {
             cloud_speed: ocean_uniform.cloud_speed,
             cloud_density_low: ocean_uniform.cloud_density_low,
             cloud_density_high: ocean_uniform.cloud_density_high,
+            cascades: cascade_vec,
         }
     }
 
     pub fn build(self) -> OceanSettingsUniform {
+        // Just make sure people arent weird.
         assert!(self.fft_subdivisions.is_power_of_two());
         assert!(self.fft_size > 0.0);
         assert!(self.mesh_size > 0.0);
+        assert!(!self.cascades.is_empty());
 
         let pass_num = self.fft_subdivisions.ilog2();
         let wave_scale = self.mesh_size / self.fft_size;
+
+        let mut cascade_sizes = [0.0f32; MAX_CASCADES];
+        let mut cascade_amplitudes = [0.0f32; MAX_CASCADES];
+        let count = self.cascades.len().min(MAX_CASCADES);
+
+        for (index, cascade) in self.cascades.iter().take(count).enumerate() {
+            cascade_sizes[index] = cascade.fft_size;
+            cascade_amplitudes[index] = cascade.amplitude;
+        }
 
         OceanSettingsUniform {
             deep_color: self.deep_color,
@@ -908,7 +956,10 @@ impl OceanSettingsBuilder {
             cloud_speed: self.cloud_speed,
             cloud_density_low: self.cloud_density_low,
             cloud_density_high: self.cloud_density_high,
-            _pad_final: [0, 0, 0, 0, 0, 0],
+            cascade_sizes,
+            cascade_amplitudes,
+            cascade_count: count as u32,
+            _pad_cascade: [0; 3],
         }
     }
 }

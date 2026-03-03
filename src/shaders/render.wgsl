@@ -6,6 +6,10 @@ const SSS_POWER: f32 = 8.0;
 const SSS_INTENSITY: f32 = 2.0;
 const DETAIL_FADE: f32 = 800.0;
 const AMBIENT_SCALE: f32 = 0.25;
+const BLEND_STRENGTH: f32 = 0.4;
+const BLOOM_SCALE: f32 = 0.5;
+const REFLECTION_MIN: f32 = 0.3;
+const REFLECTION_MAX: f32 = 0.8;
 
 struct OceanSettingsUniform {
     deep_color: vec4<f32>,
@@ -80,6 +84,10 @@ struct OceanSettingsUniform {
     caustic_octaves: u32,
     pad_a: vec2<u32>,
     pad_b: vec4<u32>, 
+    cascade_sizes: array<f32, 6>,
+    cascade_amplitudes: array<f32, 6>,
+    cascade_count: u32,
+    _pad_cascade: vec3<u32>
 };
 
 struct CameraUniform {
@@ -210,10 +218,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let horizon = mix(ocean_settings.sky_color_night_horizon.rgb, ocean_settings.sky_color_day_horizon.rgb, intensity);
     let ambient = mix(horizon, zenith, clamp(normal_geometry.y * 0.5 + 0.5, 0.0, 1.0));
 
-    let view_dir = normalize(camera.camera_pos - in.world_pos);
-    let reflect_dir = reflect(-view_dir, normal_geometry);
-    let half_dir = normalize(light_dir + view_dir);
-
     let micro_uv = (in.world_pos.xz * 2.0) + ocean_settings.wind_vector * camera.time * 0.15;
     let micro_normal = get_noise_normal(micro_uv, 0.5);
 
@@ -229,6 +233,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     );
     
     let normal = normalize(mix(normal_geometry, micro_ws, detail_fade * ocean_settings.micro_normal_strength));
+
+    let view_dir = normalize(camera.camera_pos - in.world_pos);
+    let half_dir = normalize(light_dir + view_dir);
+    let reflect_dir = reflect(-view_dir, normal);
 
     let n_dot_light = clamp(dot(normal, light_dir), 0.0, 1.0);
     let n_dot_view = clamp(dot(normal, view_dir), 0.001, 1.0);
@@ -267,7 +275,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     water_base = mix(water_base, ocean_settings.sss_color.rgb * 0.5, turbidity * 0.5);
     water_base *= max(intensity, 0.1);
 
-    let reflection_dampener = smoothstep(0.5, 1.0, jacobian);
+    let reflection_dampener = 1.0 - smoothstep(REFLECTION_MIN, REFLECTION_MAX, jacobian);
     let rougness_dynamic = mix(ocean_settings.roughness, ocean_settings.foam_roughness, foam_factor);
     let alpha = rougness_dynamic * rougness_dynamic;
     let specular_val = cook_torrance(n_dot_light, n_dot_view, n_dot_half, alpha, fresnel_spec);
@@ -286,7 +294,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let choppiness_mask = smoothstep(0.7, 1.0, jacobian);
 
     let caustic_strength = sun_facing * foam_mask * dist_fade * depth_fade * view_angle_fade * choppiness_mask * 2.0;
-    let caustic_color = caustic_pattern * ocean_settings.caustic_color_tint.rgb * caustic_strength * max(intensity, 2.0);
+    let caustic_color = caustic_pattern * ocean_settings.caustic_color_tint.rgb * caustic_strength * intensity * 2.0;
 
     color += caustic_color * ocean_settings.sss_color.rgb * 0.6;
     
@@ -320,7 +328,7 @@ fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
 
     let zenith = mix(ocean_settings.sky_color_night_zenith.rgb, ocean_settings.sky_color_day_zenith.rgb, intensity);
     let horizon = mix(ocean_settings.sky_color_night_horizon.rgb, ocean_settings.sky_color_day_horizon.rgb, intensity);
-    var col = mix(horizon, zenith, pow(max(dir.y, 0.0), 0.7));
+    var col = mix(horizon, zenith, pow(max(dir.y, 0.0), BLEND_STRENGTH));
 
     let sunset_timing = exp(-pow(sun_up * 4.0, 2.0)) * smoothstep(-0.2, 0.4, sun_up);
     let sunset_angle = max(dot(dir, normalize(vec3(sun_dir.x, 0.0, sun_dir.z))), 0.0);
@@ -332,8 +340,10 @@ fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
 
     let sun_dist = dot(dir, sun_dir);
     let sun_disk = smoothstep(ocean_settings.sun_size_inner, ocean_settings.sun_size_outer, sun_dist);
-    let sun_halo = pow(max(sun_dist, 0.0), ocean_settings.sun_halo_power) * 0.5;
-    col += (sun_disk + sun_halo) * mix(ocean_settings.sun_color.rgb, ocean_settings.sky_color_sunset_orange.rgb, sunset_timing) * intensity;
+    let sun_halo = pow(max(sun_dist, 0.0), ocean_settings.sun_halo_power) * 0.15;
+    let halo_color = mix(vec3(1.0, 0.85, 0.6), ocean_settings.sun_color.rgb, BLOOM_SCALE);
+    col += sun_disk * mix(ocean_settings.sun_color.rgb, ocean_settings.sky_color_sunset_orange.rgb, sunset_timing) * intensity;
+    col += sun_halo * halo_color * intensity;
 
     var hit_moon = false;
     

@@ -83,6 +83,8 @@ var<uniform> ocean_settings: OceanSettingsUniform;
 struct FFTUniform {
     stage: u32,
     is_vertical: u32,
+    cascade_index: u32,
+    _pad: u32
 }
 
 @group(1) @binding(0) var<uniform> config: FFTUniform;
