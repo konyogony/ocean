@@ -166,7 +166,7 @@ impl State {
             let (fft_bind_groups_ping, fft_bind_groups_pong) = Self::populate_fft_bind_groups(
                 &self.device,
                 &self.ocean_settings_uniform,
-                &self.fft_group_layout,
+                &self.fft_render_group_layout,
                 &cascade.config_buffer,
                 &cascade.texture_ping_h_dx,
                 &cascade.texture_pong_h_dx,
@@ -361,5 +361,136 @@ impl State {
         }
 
         (bind_groups_ping, bind_groups_pong)
+    }
+
+    pub fn combine_cascades(&mut self) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("combine_cascades_encoder"),
+            });
+
+        // clearing it first
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.combined_clear_pipeline);
+            pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
+            // temporary bind group for clearing
+            let clear_bind_group = if self.combined_output_is_ping {
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("clear_bind_group"),
+                    layout: &self.combined_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_ping_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_ping_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_ping_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_ping_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_ping_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_ping_dz.view,
+                            ),
+                        },
+                    ],
+                })
+            } else {
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("clear_bind_group"),
+                    layout: &self.combined_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_pong_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_pong_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_pong_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_pong_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_pong_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_pong_dz.view,
+                            ),
+                        },
+                    ],
+                })
+            };
+            pass.set_bind_group(1, &clear_bind_group, &[]);
+            pass.dispatch_workgroups(
+                &self.ocean_settings_uniform.fft_subdivisions / 16,
+                &self.ocean_settings_uniform.fft_subdivisions / 16,
+                1,
+            );
+        }
+
+        for cascade in &mut self.cascades {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.combined_cascade_pipeline);
+            pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
+
+            let cascade_combine_bind_group = if cascade.output_is_ping {
+                &cascade.combined_bind_group_ping
+            } else {
+                &cascade.combined_bind_group_pong
+            };
+
+            pass.set_bind_group(1, cascade_combine_bind_group, &[]);
+            pass.dispatch_workgroups(
+                &self.ocean_settings_uniform.fft_subdivisions / 16,
+                &self.ocean_settings_uniform.fft_subdivisions / 16,
+                1,
+            );
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        self.combined_output_is_ping = !self.combined_output_is_ping;
     }
 }
