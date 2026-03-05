@@ -83,10 +83,10 @@ struct OceanSettingsUniform {
     ocean_seed: u32,
     caustic_octaves: u32,
     pad_a: vec2<u32>,
-    pad_b: vec4<u32>, 
+    pad_b: vec4<u32>,
     cascade_data: array<vec4<f32>, 6>,
     cascade_count: u32,
-    _pad_cascade: vec3<u32>
+    _pad_cascade: vec3<u32>,
 };
 
 struct CameraUniform {

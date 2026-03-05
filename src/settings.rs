@@ -3,6 +3,7 @@ use std::{
     fs::{self, read_to_string, write},
     path::Path,
 };
+// if this is changed, then uniform has to be re-calculated
 pub const MAX_CASCADES: usize = 6;
 pub const TOTAL_BINDINGS: usize = 1 + MAX_CASCADES * 4;
 
@@ -303,9 +304,12 @@ pub struct OceanSettingsUniform {
     pub pass_num: u32,
     pub ocean_seed: u32,
     pub caustic_octaves: u32,
+    pub pad_a: [u32; 2],
+    pub pad_b: [u32; 4],
     pub cascade_data: [[f32; 4]; MAX_CASCADES],
     pub cascade_count: u32,
     pub _pad_cascade: [u32; 3],
+    pub _pad_end: [u32; 4],
 }
 
 pub struct OceanSettingsBuilder {
@@ -955,6 +959,9 @@ impl OceanSettingsBuilder {
             cloud_speed: self.cloud_speed,
             cloud_density_low: self.cloud_density_low,
             cloud_density_high: self.cloud_density_high,
+            pad_a: [0; 2],
+            pad_b: [0; 4],
+            _pad_end: [0; 4],
             cascade_data,
             cascade_count: count as u32,
             _pad_cascade: [0; 3],

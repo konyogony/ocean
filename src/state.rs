@@ -215,9 +215,7 @@ impl State {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<
-                            OceanSettingsUniform,
-                        >() as u64),
+                        min_binding_size: None,
                     },
                     count: None,
                 }],
@@ -394,6 +392,26 @@ impl State {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::ReadOnly,
+                            format: FFT_TEXTURE_FORMAT,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: FFT_TEXTURE_FORMAT,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -495,10 +513,10 @@ impl State {
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::ReadOnly,
-                            format: FFT_TEXTURE_FORMAT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
                         },
                         count: None,
                     },
@@ -506,10 +524,10 @@ impl State {
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::ReadOnly,
-                            format: FFT_TEXTURE_FORMAT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
                         },
                         count: None,
                     },
@@ -517,10 +535,10 @@ impl State {
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::ReadOnly,
-                            format: FFT_TEXTURE_FORMAT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
                         },
                         count: None,
                     },
@@ -528,10 +546,10 @@ impl State {
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::ReadOnly,
-                            format: FFT_TEXTURE_FORMAT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
                         },
                         count: None,
                     },

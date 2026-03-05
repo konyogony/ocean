@@ -70,10 +70,10 @@ struct OceanSettingsUniform {
     ocean_seed: u32,
     caustic_octaves: u32,
     pad_a: vec2<u32>,
-    pad_b: vec4<u32>, 
+    pad_b: vec4<u32>,
     cascade_data: array<vec4<f32>, 6>,
     cascade_count: u32,
-    _pad_cascade: vec3<u32>
+    _pad_cascade: vec3<u32>,
 };
 
 struct CameraUniform {
@@ -97,8 +97,8 @@ const DISSIPATION_FACTOR: f32 = 0.99;
 @group(2) @binding(1) var foam_texture_write: texture_storage_2d<rgba16float, write>;
 @group(2) @binding(2) var foam_sampler: sampler;
 
-@group(3) @binding(0) var texture_h_dx: texture_storage_2d<rgba16float, read>;
-@group(3) @binding(1) var texture_dz: texture_storage_2d<rgba16float, read>;
+@group(3) @binding(0) var texture_h_dx: texture_2d<f32>;
+@group(3) @binding(1) var texture_dz: texture_2d<f32>;
 @group(3) @binding(2) var sampler_height_field: sampler;
 
 fn get_foam(uv: vec2<f32>, time: f32) -> f32 {
@@ -147,8 +147,8 @@ fn compute_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let dimensions = vec2<f32>(textureDimensions(foam_texture_write));
     let uv_float = vec2<f32>(global_id.xy) / vec2<f32>(dimensions);
 
-    let h_dx_val = textureLoad(texture_h_dx, global_id.xy);
-    let dz_val = textureLoad(texture_dz, global_id.xy);
+    let h_dx_val = textureLoad(texture_h_dx, global_id.xy, 0);
+    let dz_val = textureLoad(texture_dz, global_id.xy, 0);
 
     let amp = ocean_settings.amplitude_scale;
     let chop = ocean_settings.chop_scale;
@@ -172,8 +172,8 @@ fn advect_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let dimensions_storage = textureDimensions(texture_h_dx);
     let uv_float = vec2<f32>(global_id.xy) / vec2<f32>(dimensions_storage);
 
-    let h_dx_val = textureLoad(texture_h_dx, global_id.xy);
-    let dz_val = textureLoad(texture_dz, global_id.xy);
+    let h_dx_val = textureLoad(texture_h_dx, global_id.xy, 0);
+    let dz_val = textureLoad(texture_dz, global_id.xy, 0);
 
     let dx = h_dx_val.z;
     let dz = dz_val.x;

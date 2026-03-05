@@ -74,35 +74,32 @@ struct OceanSettingsUniform {
     ocean_seed: u32,
     caustic_octaves: u32,
     pad_a: vec2<u32>,
-    pad_b: vec4<u32>, 
+    pad_b: vec4<u32>,
     cascade_data: array<vec4<f32>, 6>,
     cascade_count: u32,
-    _pad_cascade: vec3<u32>
+    _pad_cascade: vec3<u32>,
 };
 
 @group(0) @binding(0) var<uniform> ocean_settings: OceanSettingsUniform;
 
-@group(1) @binding(0) var in_h_dx: texture_storage_2d<rgba32float, read>;
-@group(1) @binding(1) var in_dz: texture_storage_2d<rgba32float, read>;
+@group(1) @binding(0) var in_h_dx: texture_2d<f32>;
+@group(1) @binding(1) var in_dz: texture_2d<f32>;
 
-@group(1) @binding(2) var combined_read_h_dx: texture_storage_2d<rgba32float, read>;
-@group(1) @binding(3) var combined_read_dz: texture_storage_2d<rgba32float, read>;
+@group(1) @binding(2) var combined_read_h_dx: texture_2d<f32>;
+@group(1) @binding(3) var combined_read_dz: texture_2d<f32>;
 
-@group(1) @binding(4) var combined_write_h_dx: texture_storage_2d<rgba32float, write>;
-@group(1) @binding(5) var combined_write_dz: texture_storage_2d<rgba32float, write>;
+@group(1) @binding(4) var combined_write_h_dx: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(5) var combined_write_dz: texture_storage_2d<rgba16float, write>;
 
 @compute @workgroup_size(16, 16)
 fn combine_cascades(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let x = i32(gid.x);
-    let y = i32(gid.y);
+    let coords = vec2<i32>(gid.xy);
 
-    let coords = vec2<i32>(x,y);
+    let combined_h_dx = textureLoad(combined_read_h_dx, coords, 0);
+    let combined_dz = textureLoad(combined_read_dz, coords, 0);
 
-    let combined_h_dx = textureLoad(combined_read_h_dx, coords);
-    let combined_dz = textureLoad(combined_read_dz, coords);
-
-    let cascade_h_dx = textureLoad(in_h_dx, coords);
-    let cascade_dz = textureLoad(in_dz, coords);
+    let cascade_h_dx = textureLoad(in_h_dx, coords, 0);
+    let cascade_dz = textureLoad(in_dz, coords, 0);
 
     // direct sum, no weightings
     let sum_h_dx = combined_h_dx + cascade_h_dx;
@@ -114,11 +111,8 @@ fn combine_cascades(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 @compute @workgroup_size(16, 16)
 fn clear_textures(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let x = i32(gid.x);
-    let y = i32(gid.y);
+    let coords = vec2<i32>(gid.xy);
 
-    let coords = vec2<i32>(x,y);
-
-    textureStore(combined_write_h_dx, coords, vec4(0));
-    textureStore(combined_write_dz, coords, vec4(0));
+    textureStore(combined_write_h_dx, coords, vec4(0.0));
+    textureStore(combined_write_dz, coords, vec4(0.0));
 }

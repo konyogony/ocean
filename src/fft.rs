@@ -56,7 +56,7 @@ impl State {
                 current_is_ping = !current_is_ping;
             }
 
-            cascade.output_is_ping = passes % 2 == 0;
+            cascade.output_is_ping = passes.is_multiple_of(2);
             if !cascade.output_is_ping {
                 println!("output in B");
             }
@@ -75,7 +75,7 @@ impl State {
         let twiddle_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("twiddle_buffer")),
+                label: Some("twiddle_buffer"),
                 contents: bytemuck::cast_slice(&twiddle_array),
                 usage: wgpu::BufferUsages::STORAGE,
             });
@@ -329,12 +329,12 @@ impl State {
 
             // Read Pong -> Write Ping
             bind_groups_pong.push(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &fft_group_layout,
+                layout: fft_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &fft_config_buffer,
+                            buffer: fft_config_buffer,
                             offset,
                             size: wgpu::BufferSize::new(fft_uniform_size),
                         }),
@@ -384,25 +384,25 @@ impl State {
                         wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_ping_h_dx.view,
+                                &self.combined_texture_pong_h_dx.view,
                             ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_ping_dz.view,
+                                &self.combined_texture_pong_dz.view,
                             ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
                             resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_ping_h_dx.view,
+                                &self.combined_texture_pong_h_dx.view,
                             ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
                             resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_ping_dz.view,
+                                &self.combined_texture_pong_dz.view,
                             ),
                         },
                         wgpu::BindGroupEntry {
@@ -427,25 +427,25 @@ impl State {
                         wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_pong_h_dx.view,
+                                &self.combined_texture_ping_h_dx.view,
                             ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_pong_dz.view,
+                                &self.combined_texture_ping_dz.view,
                             ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
                             resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_pong_h_dx.view,
+                                &self.combined_texture_ping_h_dx.view,
                             ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
                             resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_pong_dz.view,
+                                &self.combined_texture_ping_dz.view,
                             ),
                         },
                         wgpu::BindGroupEntry {

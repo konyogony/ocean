@@ -228,7 +228,7 @@ impl State {
                 ocean_settings_bind_group_layout,
                 camera_bind_group_layout,
                 &foam_compute_layout,
-                height_field_compute_bind_group_layout,
+                height_field_render_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
