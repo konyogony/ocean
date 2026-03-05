@@ -84,8 +84,7 @@ struct OceanSettingsUniform {
     caustic_octaves: u32,
     pad_a: vec2<u32>,
     pad_b: vec4<u32>, 
-    cascade_sizes: array<f32, 6>,
-    cascade_amplitudes: array<f32, 6>,
+    cascade_data: array<vec4<f32>, 6>,
     cascade_count: u32,
     _pad_cascade: vec3<u32>
 };

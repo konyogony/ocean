@@ -303,8 +303,7 @@ pub struct OceanSettingsUniform {
     pub pass_num: u32,
     pub ocean_seed: u32,
     pub caustic_octaves: u32,
-    pub cascade_sizes: [f32; MAX_CASCADES],
-    pub cascade_amplitudes: [f32; MAX_CASCADES],
+    pub cascade_data: [[f32; 4]; MAX_CASCADES],
     pub cascade_count: u32,
     pub _pad_cascade: [u32; 3],
 }
@@ -791,8 +790,9 @@ impl OceanSettingsBuilder {
         let cascade_count = ocean_uniform.cascade_count.min(MAX_CASCADES as u32) as usize;
         for cascade_index in 0..cascade_count {
             cascade_vec.push(CascadePreset {
-                fft_size: ocean_uniform.cascade_sizes[cascade_index],
-                amplitude: ocean_uniform.cascade_amplitudes[cascade_index],
+                // x --> size, y --> amplitude
+                fft_size: ocean_uniform.cascade_data[cascade_index][0],
+                amplitude: ocean_uniform.cascade_data[cascade_index][1],
             });
         }
         Self {
@@ -876,13 +876,12 @@ impl OceanSettingsBuilder {
         let pass_num = self.fft_subdivisions.ilog2();
         let wave_scale = self.mesh_size / self.fft_size;
 
-        let mut cascade_sizes = [0.0f32; MAX_CASCADES];
-        let mut cascade_amplitudes = [0.0f32; MAX_CASCADES];
+        let mut cascade_data = [[0.0f32; 4]; MAX_CASCADES];
         let count = self.cascades.len().min(MAX_CASCADES);
 
         for (index, cascade) in self.cascades.iter().take(count).enumerate() {
-            cascade_sizes[index] = cascade.fft_size;
-            cascade_amplitudes[index] = cascade.amplitude;
+            cascade_data[index][0] = cascade.fft_size;
+            cascade_data[index][1] = cascade.amplitude;
         }
 
         OceanSettingsUniform {
@@ -956,8 +955,7 @@ impl OceanSettingsBuilder {
             cloud_speed: self.cloud_speed,
             cloud_density_low: self.cloud_density_low,
             cloud_density_high: self.cloud_density_high,
-            cascade_sizes,
-            cascade_amplitudes,
+            cascade_data,
             cascade_count: count as u32,
             _pad_cascade: [0; 3],
         }

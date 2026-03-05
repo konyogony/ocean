@@ -10,7 +10,7 @@ impl State {
                 label: Some("foam_encoder"),
             });
 
-        let fft_read_bind_group = if self.fft_output_is_a {
+        let fft_read_bind_group = if self.output_is_ping {
             &self.height_field_compute_bind_group_ping
         } else {
             &self.height_field_compute_bind_group_pong
