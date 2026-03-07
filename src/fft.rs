@@ -376,93 +376,54 @@ impl State {
             pass.set_pipeline(&self.combined_clear_pipeline);
             pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
             // temporary bind group for clearing
-            let clear_bind_group = if self.combined_output_is_ping {
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("clear_bind_group"),
-                    layout: &self.combined_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_pong_h_dx.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_pong_dz.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_pong_h_dx.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_pong_dz.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_ping_h_dx.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_ping_dz.view,
-                            ),
-                        },
-                    ],
-                })
-            } else {
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("clear_bind_group"),
-                    layout: &self.combined_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_ping_h_dx.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_ping_dz.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_ping_h_dx.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_ping_dz.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_pong_h_dx.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.combined_texture_pong_dz.view,
-                            ),
-                        },
-                    ],
-                })
-            };
+            let clear_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("clear_pong_bind_group"),
+                layout: &self.combined_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.combined_texture_pong_h_dx.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.combined_texture_ping_dz.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.combined_texture_pong_h_dx.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.combined_texture_ping_dz.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.combined_texture_ping_h_dx.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.combined_texture_ping_dz.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::Sampler(
+                            &self.combined_texture_ping_h_dx.sampler,
+                        ),
+                    },
+                ],
+            });
             pass.set_bind_group(1, &clear_bind_group, &[]);
             pass.dispatch_workgroups(
                 &self.ocean_settings_uniform.fft_subdivisions / 16,
@@ -471,26 +432,27 @@ impl State {
             );
         }
 
-        for cascade in &mut self.cascades {
+        for (i, cascade) in self.cascades.iter().enumerate() {
+            let bind_group = if i % 2 == 0 {
+                &cascade.combined_bind_group_ping
+            } else {
+                &cascade.combined_bind_group_accumulate
+            };
+
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.combined_cascade_pipeline);
             pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
+            pass.set_bind_group(1, bind_group, &[]);
 
-            let cascade_combine_bind_group = if cascade.output_is_ping {
-                &cascade.combined_bind_group_ping
-            } else {
-                &cascade.combined_bind_group_pong
-            };
-
-            pass.set_bind_group(1, cascade_combine_bind_group, &[]);
             pass.dispatch_workgroups(
-                &self.ocean_settings_uniform.fft_subdivisions / 16,
-                &self.ocean_settings_uniform.fft_subdivisions / 16,
+                self.ocean_settings_uniform.fft_subdivisions / 16,
+                self.ocean_settings_uniform.fft_subdivisions / 16,
                 1,
             );
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
-        self.combined_output_is_ping = !self.combined_output_is_ping;
+        let last_cascade_idx = self.ocean_settings_uniform.cascade_count as usize - 1;
+        self.combined_output_is_ping = last_cascade_idx % 2 == 1;
     }
 }
