@@ -201,7 +201,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let normal_geometry = normalize(vec3<f32>(-ddx_h, 1.0, -ddz_h));
 
     // Use new sun position & get stuff from the skybox shader
-    let angle = ocean_settings.daynight_cycle * 6.28318;
+    let angle = (ocean_settings.daynight_cycle - 0.5) * 6.28318;
     let sun_dir = normalize(vec3(sin(angle), cos(angle), ocean_settings.sun_offset_z));
     let sun_up = sun_dir.y;
     let intensity = smoothstep(-0.2, 0.5, sun_up);
@@ -314,7 +314,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 // copied form other shader
 fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
     let dir = normalize(view_dir);
-    let angle = ocean_settings.daynight_cycle * 6.28318;
+    let angle = (ocean_settings.daynight_cycle - 0.5) * 6.28318;
     
     let sun_dir = normalize(vec3(sin(angle), cos(angle), ocean_settings.sun_offset_z));
     let sun_up = sun_dir.y;

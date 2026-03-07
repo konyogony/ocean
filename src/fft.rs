@@ -31,13 +31,13 @@ impl State {
                 );
             }
 
-            let mut current_is_ping = true;
+            let mut current_reads_from_ping = true;
 
-            for i in 0..(self.ocean_settings_uniform.pass_num * 2) as usize {
+            for i in 0..passes {
                 let mut pass = encoder.begin_compute_pass(&Default::default());
                 pass.set_pipeline(&self.fft_compute_pipeline);
 
-                let bind_group = if current_is_ping {
+                let bind_group = if current_reads_from_ping {
                     &cascade.bind_groups_ping[i]
                 } else {
                     &cascade.bind_groups_pong[i]
@@ -53,13 +53,13 @@ impl State {
                     1,
                 );
 
-                current_is_ping = !current_is_ping;
+                current_reads_from_ping = !current_reads_from_ping;
             }
 
-            cascade.output_is_ping = passes.is_multiple_of(2);
-            if !cascade.output_is_ping {
-                println!("output in B");
-            }
+            cascade.output_is_ping = !passes.is_multiple_of(2);
+            // if !cascade.output_is_ping {
+            //     println!("output in B");
+            // }
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -383,37 +383,37 @@ impl State {
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: wgpu::BindingResource::TextureView(
-                            &self.combined_texture_pong_h_dx.view,
+                            &self.combined_texture_ping_h_dx.view, // dummy
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::TextureView(
-                            &self.combined_texture_ping_dz.view,
+                            &self.combined_texture_ping_dz.view, // dummy
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: wgpu::BindingResource::TextureView(
-                            &self.combined_texture_pong_h_dx.view,
+                            &self.combined_texture_ping_h_dx.view, // dummy
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: wgpu::BindingResource::TextureView(
-                            &self.combined_texture_ping_dz.view,
+                            &self.combined_texture_ping_dz.view, // dummy
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
                         resource: wgpu::BindingResource::TextureView(
-                            &self.combined_texture_ping_h_dx.view,
+                            &self.combined_texture_pong_h_dx.view,
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
                         resource: wgpu::BindingResource::TextureView(
-                            &self.combined_texture_ping_dz.view,
+                            &self.combined_texture_pong_dz.view,
                         ),
                     },
                     wgpu::BindGroupEntry {
@@ -432,27 +432,30 @@ impl State {
             );
         }
 
-        for (i, cascade) in self.cascades.iter().enumerate() {
-            let bind_group = if i % 2 == 0 {
+        let mut current_output_is_ping = true;
+
+        for cascade in &mut self.cascades {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.combined_cascade_pipeline);
+            pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
+
+            let bind_group = if current_output_is_ping == cascade.output_is_ping {
                 &cascade.combined_bind_group_ping
             } else {
                 &cascade.combined_bind_group_accumulate
             };
 
-            let mut pass = encoder.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&self.combined_cascade_pipeline);
-            pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
             pass.set_bind_group(1, bind_group, &[]);
-
             pass.dispatch_workgroups(
                 self.ocean_settings_uniform.fft_subdivisions / 16,
                 self.ocean_settings_uniform.fft_subdivisions / 16,
                 1,
             );
+            current_output_is_ping = !current_output_is_ping;
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
-        let last_cascade_idx = self.ocean_settings_uniform.cascade_count as usize - 1;
-        self.combined_output_is_ping = last_cascade_idx % 2 == 1;
+        self.combined_output_is_ping =
+            (self.ocean_settings_uniform.cascade_count as usize) % 2 == 1;
     }
 }

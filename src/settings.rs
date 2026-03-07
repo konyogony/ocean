@@ -80,7 +80,7 @@ pub struct OceanPreset {
     pub cloud_density_low: f32,
     pub cloud_density_high: f32,
     pub daynight_cycle: f32,
-    pub cascades: Vec<CascadePreset>,
+    pub cascade_data: Vec<CascadePreset>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -226,7 +226,7 @@ impl OceanPreset {
             cloud_density_low: builder.cloud_density_low,
             cloud_density_high: builder.cloud_density_high,
             daynight_cycle: builder.daynight_cycle,
-            cascades: builder.cascades,
+            cascade_data: builder.cascade_data,
         }
     }
 }
@@ -379,7 +379,7 @@ pub struct OceanSettingsBuilder {
     cloud_speed: f32,
     cloud_density_low: f32,
     cloud_density_high: f32,
-    cascades: Vec<CascadePreset>,
+    cascade_data: Vec<CascadePreset>,
 }
 
 impl Default for OceanSettingsBuilder {
@@ -451,7 +451,7 @@ impl Default for OceanSettingsBuilder {
             cloud_speed: 0.05,
             cloud_density_low: 0.4,
             cloud_density_high: 0.8,
-            cascades: vec![
+            cascade_data: vec![
                 CascadePreset {
                     fft_size: 1000.0,
                     amplitude: 1.0,
@@ -866,24 +866,25 @@ impl OceanSettingsBuilder {
             cloud_speed: ocean_uniform.cloud_speed,
             cloud_density_low: ocean_uniform.cloud_density_low,
             cloud_density_high: ocean_uniform.cloud_density_high,
-            cascades: cascade_vec,
+            cascade_data: cascade_vec,
         }
     }
 
     pub fn build(self) -> OceanSettingsUniform {
         // Just make sure people arent weird.
-        assert!(self.fft_subdivisions.is_power_of_two());
+        // assert!(self.fft_subdivisions.is_power_of_two());
+        assert!(self.fft_subdivisions.is_multiple_of(16));
         assert!(self.fft_size > 0.0);
         assert!(self.mesh_size > 0.0);
-        assert!(!self.cascades.is_empty());
+        assert!(!self.cascade_data.is_empty());
 
         let pass_num = self.fft_subdivisions.ilog2();
         let wave_scale = self.mesh_size / self.fft_size;
 
         let mut cascade_data = [[0.0f32; 4]; MAX_CASCADES];
-        let count = self.cascades.len().min(MAX_CASCADES);
+        let count = self.cascade_data.len().min(MAX_CASCADES);
 
-        for (index, cascade) in self.cascades.iter().take(count).enumerate() {
+        for (index, cascade) in self.cascade_data.iter().take(count).enumerate() {
             cascade_data[index][0] = cascade.fft_size;
             cascade_data[index][1] = cascade.amplitude;
         }

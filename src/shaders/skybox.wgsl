@@ -80,7 +80,7 @@ struct OceanSettingsUniform {
 struct CameraUniform {
     view_proj: mat4x4<f32>,
     view_proj_sky: mat4x4<f32>,
-    view_dir: vec3<f32>,
+    camera_pos: vec3<f32>,
     _pad1: f32,
     time: f32,
     delta_time: f32,
@@ -166,8 +166,7 @@ fn cloud_density(p: vec2<f32>, t: f32) -> f32 {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let dir = normalize(in.tex_coords);
-    // let day_cycle = fract(camera.time * DAY_CYCLE_SPEED);
-    let angle = ocean_settings.daynight_cycle * 6.28318;
+    let angle = (ocean_settings.daynight_cycle - 0.25) * 6.28318;
     
     let sun_dir = normalize(vec3(sin(angle), cos(angle), ocean_settings.sun_offset_z));
     let sun_up = sun_dir.y;

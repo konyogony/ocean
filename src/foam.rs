@@ -15,10 +15,10 @@ impl State {
         } else {
             &self.combined_render_bind_group_pong
         };
-        let foam_compute_bind_group = if self.foam_output_is_a {
-            &self.foam_compute_bind_groups[0]
+        let (foam_read_index, foam_write_index) = if self.foam_output_is_a {
+            (0, 1)
         } else {
-            &self.foam_compute_bind_groups[1]
+            (1, 0)
         };
 
         // first we generate
@@ -27,7 +27,7 @@ impl State {
             pass.set_pipeline(&self.foam_generation_pipeline);
             pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
             pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            pass.set_bind_group(2, foam_compute_bind_group, &[]);
+            pass.set_bind_group(2, &self.foam_compute_bind_groups[foam_read_index], &[]);
             pass.set_bind_group(3, fft_read_bind_group, &[]);
             pass.dispatch_workgroups(
                 self.ocean_settings_uniform.fft_subdivisions / 16,
@@ -36,19 +36,13 @@ impl State {
             );
         }
 
-        let foam_advection_pass_bind_group = if self.foam_output_is_a {
-            &self.foam_compute_bind_groups[1]
-        } else {
-            &self.foam_compute_bind_groups[0]
-        };
-
         // Advection pass
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.foam_advection_pipeline);
             pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
             pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            pass.set_bind_group(2, foam_advection_pass_bind_group, &[]);
+            pass.set_bind_group(2, &self.foam_compute_bind_groups[foam_write_index], &[]);
             pass.set_bind_group(3, fft_read_bind_group, &[]);
             pass.dispatch_workgroups(
                 self.ocean_settings_uniform.fft_subdivisions / 16,
@@ -58,7 +52,6 @@ impl State {
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
-
         self.foam_output_is_a = !self.foam_output_is_a;
     }
 

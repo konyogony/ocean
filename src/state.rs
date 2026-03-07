@@ -297,10 +297,12 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/render.wgsl").into()),
         });
 
-        // Setting up the surface as well as creating initial waves for simple sum of sine waves
+        // Setting up the surface
         let (verticies, indicies) = Vertex::generate_plane(
             &ocean_settings_uniform.mesh_size,
-            ocean_settings_uniform.fft_subdivisions * 2, // TODO: CHANGE
+            // hmm i rmb debating if this shall be a free property or dependant on the fft
+            // subdivisions, i think imma go w the first one for now..
+            ocean_settings_uniform.mesh_subdivisions,
         );
 
         // Initial Data Initalisation
@@ -1069,7 +1071,7 @@ impl State {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: crate::texture::DEPTH_FORMAT,
                 depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -1109,7 +1111,7 @@ impl State {
         let depth_stencil = Some(wgpu::DepthStencilState {
             format: crate::texture::DEPTH_FORMAT,
             depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::Always,
+            depth_compare: wgpu::CompareFunction::LessEqual,
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         });
