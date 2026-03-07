@@ -174,8 +174,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let moon_base = -sun_dir;
     let moon_dir = normalize(moon_base + ocean_settings.moon_phase_offset); 
     
-    let intensity = smoothstep(-0.3, 0.3, sun_up);
-    let night_fade = smoothstep(0.3, -0.3, sun_up);
+    let intensity = smoothstep(-0.5, 0.5, sun_up);
+    let night_fade = smoothstep(0.5, -0.5, sun_up);
 
     let zenith = mix(ocean_settings.sky_color_night_zenith.rgb, ocean_settings.sky_color_day_zenith.rgb, intensity);
     let horizon = mix(ocean_settings.sky_color_night_horizon.rgb, ocean_settings.sky_color_day_horizon.rgb, intensity);
@@ -236,13 +236,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         col += vec3(0.5, 0.6, 0.8) * moon_glow;
     }
 
-    if (!hit_moon && sun_up < 0.2) {
-        let star_grid = floor(dir * ocean_settings.star_count); 
-        let star_hash = hash31(star_grid);
-        
-        if (star_hash > ocean_settings.star_threshold) {
-            let blink = sin(camera.time * (ocean_settings.star_blink_speed + star_hash) + star_hash * 50.0) * 0.4 + 0.6;
-            col += vec3(blink * star_hash) * night_fade * smoothstep(0.0, 0.2, dir.y);
+    if (!hit_moon) {
+        let star_visibility = smoothstep(0.3, -0.1, sun_up); 
+        if (star_visibility > 0) {
+            let star_grid = floor(dir * ocean_settings.star_count); 
+            let star_hash = hash31(star_grid);
+            
+            if (star_hash > ocean_settings.star_threshold) {
+                let star_phase = hash31(star_grid + vec3(123.456, 789.012, 345.678));
+                let blink = sin(camera.time * ocean_settings.star_blink_speed + star_phase * 100.0) * 0.3 + 0.7;
+                let star_brightness = mix(0.6, 1.0, star_phase);
+                col += vec3(blink * star_brightness) * star_visibility * smoothstep(0.0, 0.2, dir.y);
+            }
         }
     }
 
