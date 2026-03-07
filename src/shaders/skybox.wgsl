@@ -1,3 +1,5 @@
+const pi: f32 = 3.14159;
+
 struct OceanSettingsUniform {
     deep_color: vec4<f32>,
     shallow_color: vec4<f32>,
@@ -75,6 +77,50 @@ struct OceanSettingsUniform {
     cascade_data: array<vec4<f32>, 6>,
     cascade_count: u32,
     _pad_cascade: vec3<u32>,
+    sunset_scatter_color: vec3<f32>,      // 1.05, 0.88, 0.72
+    sunset_scatter_intensity: f32,       // 0.55
+    foam_base_color: vec3<f32>,          // 0.95, 0.98, 0.92
+    sss_min_height: f32,                 // -0.5
+    sss_max_height: f32,                 // 1.5
+    sss_power: f32,                      // 8.0
+    sss_intensity: f32,                  // 1.0
+    detail_fade: f32,                    // 800.0
+    ambient_scale: f32,                  // 0.08
+    blend_strength: f32,                 // 0.4
+    bloom_scale: f32,                    // 0.3
+    reflection_min: f32,                 // 0.2
+    reflection_max: f32,                 // 0.9
+    moon_light_dim: f32,                 // 0.25
+    sky_zenith_gradient_exp: f32,        // 1.5
+    horizon_glow_mult: f32,              // 1.2
+    sunset_orange_weight: f32,           // 0.55
+    sunset_intensity: f32,               // 3.8
+    sun_halo_intensity: f32,             // 0.02
+    moon_halo_intensity: f32,            // 0.1
+    micro_uv_freq: f32,                  // 0.01
+    micro_time_freq: f32,                // 0.001
+    micro_strength_mod: f32,             // 0.05
+    foam_crest_width: f32,               // 0.2
+    caustic_aberration: f32,             // 0.01
+    caustic_smooth_low: f32,             // 0.6
+    caustic_smooth_high: f32,            // 1.0
+    aurora_brightness: f32,              // 2.5
+    aurora_y_threshold: f32,             // 0.04
+    water_brightness_mod: f32,           // 0.8
+    decay_factor: f32,                   // 0.98
+    dissipation_factor: f32,             // 0.99
+    warp_uv_scale: f32,                  // 0.5
+    warp_strength: f32,                  // 0.5
+    warp_time_scale: f32,                // 0.1
+    foam_octaves: u32,                   // 3u
+    foam_power: f32,                     // 1.5
+    hash_scale: f32,                     // 0.1031
+    hash_dot: f32,                       // 33.33
+    steepness_threshold_low: f32,        // 0.1
+    steepness_threshold_high: f32,       // 0.8
+    y_displacement_weight: f32,          // 0.5
+    wave_epsilon: f32,                   // 0.0001
+    _pad_final: f32,                     // Padding
 };
 
 
@@ -111,8 +157,6 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     return out;
 }
 
-const DAY_CYCLE_SPEED: f32 = 0.01;
-const pi: f32 = 3.14159;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -131,24 +175,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let zenith = mix(ocean_settings.sky_color_night_zenith.rgb, ocean_settings.sky_color_day_zenith.rgb, intensity);
     let horizon = mix(ocean_settings.sky_color_night_horizon.rgb, ocean_settings.sky_color_day_horizon.rgb, intensity);
-    var col = mix(horizon, zenith, pow(clamp(dir.y * 0.5 + 0.5, 0.0, 1.0), 1.5));
+    var col = mix(horizon, zenith, pow(clamp(dir.y * 0.5 + 0.5, 0.0, 1.0), ocean_settings.sky_zenith_gradient_exp));
 
     let sunset_timing = exp(-pow(sun_up * 4.0, 2.0));
     let sunset_angle = max(dot(dir, normalize(vec3(sun_dir.x, 0.0, sun_dir.z))), 0.0);
     let sunset_vertical = smoothstep(-0.05, 0.45, dir.y) * smoothstep(0.75, 0.15, dir.y);
 
     let horizon_wrap = pow(max(1.0 - abs(dir.y), 0.0), 3.0) * sunset_timing;
-    col += ocean_settings.sky_color_horizon_glow.rgb * horizon_wrap * 1.2;
+    col += ocean_settings.sky_color_horizon_glow.rgb * horizon_wrap * ocean_settings.horizon_glow_mult;
 
-    let sunset_mix = mix(ocean_settings.sky_color_sunset_pink.rgb, ocean_settings.sky_color_sunset_orange.rgb, 0.55);
-    col += sunset_mix * pow(sunset_angle, 1.1) * sunset_vertical * sunset_timing * 3.8;
+    let sunset_mix = mix(ocean_settings.sky_color_sunset_pink.rgb, ocean_settings.sky_color_sunset_orange.rgb, ocean_settings.sunset_orange_weight);
+    col += sunset_mix * pow(sunset_angle, 1.1) * sunset_vertical * sunset_timing * ocean_settings.sunset_intensity;
     
-    let scatter_tint = mix(vec3(1.0), vec3(1.05, 0.88, 0.72), sunset_timing * 0.55 * intensity);
+    let scatter_tint = mix(vec3(1.0), ocean_settings.sunset_scatter_color, sunset_timing * ocean_settings.sunset_scatter_intensity * intensity);
     col *= scatter_tint;
 
     let sun_dist = dot(dir, sun_dir);
     let sun_disk = smoothstep(ocean_settings.sun_size_inner, ocean_settings.sun_size_outer, sun_dist);
-    let sun_halo = pow(max(sun_dist, 0.0), ocean_settings.sun_halo_power) * 0.05;
+    let sun_halo = pow(max(sun_dist, 0.0), ocean_settings.sun_halo_power) * ocean_settings.sun_halo_intensity;
     col += (sun_disk + sun_halo) * mix(ocean_settings.sun_color.rgb, ocean_settings.sky_color_sunset_orange.rgb * 1.25, sunset_timing * 0.85) * max(intensity, sunset_timing * 0.5);
 
     var hit_moon = false;
@@ -186,7 +230,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let moon_dist_ang = dot(dir, moon_dir);
         let moon_dist_safe = max(moon_dist_ang, 0.0);
         let moon_glow_mask = smoothstep(0.0, 0.15, moon_dist_ang);
-        let moon_glow = moon_glow_mask * pow(moon_dist_safe, ocean_settings.moon_halo_power) * 0.1 * night_fade;
+        let moon_glow = moon_glow_mask * pow(moon_dist_safe, ocean_settings.moon_halo_power) * ocean_settings.moon_halo_intensity * night_fade;
         col += vec3(0.5, 0.6, 0.8) * moon_glow;
         if (star_visibility > 0.0) {
             let star_phi = atan2(dir.z, dir.x);
@@ -201,7 +245,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let star_hash = hash31(star_hash_in);
             
             if (star_hash > ocean_settings.star_threshold) {
-                let star_dot = 1.0 - smoothstep(0.0, ocean_settings.star_size * 0.5, length(star_frac));
+                let star_dot = 1.0 - smoothstep(0.0, ocean_settings.star_size, length(star_frac));
                 let star_phase = hash31(star_hash_in + vec3(123.456, 789.012, 0.0));
                 let star_freq = mix(0.5, 3.0, hash31(star_hash_in + vec3(11.1, 22.2, 0.0)));
                 let blink = sin(camera.time * ocean_settings.star_blink_speed * star_freq + star_phase * 6.28318) * 0.4 + 0.6;
@@ -285,7 +329,7 @@ fn cloud_density(p: vec2<f32>, t: f32) -> f32 {
 
 // yep this is vibe coded..
 fn get_aurora(dir: vec3<f32>, time: f32) -> vec3<f32> {
-    if (dir.y < 0.04) { return vec3(0.0); }
+    if (dir.y < ocean_settings.aurora_y_threshold) { return vec3(0.0); }
     let phi = atan2(dir.z, dir.x);
     let t = time * 0.08;
 
@@ -296,7 +340,7 @@ fn get_aurora(dir: vec3<f32>, time: f32) -> vec3<f32> {
     let band_y = dir.y + wave;
     let band = exp(-pow((band_y - 0.55) * 4.5, 2.0));
 
-    let uv_a = vec2(phi / (2.0 * 3.141592), dir.y * 2.5);
+    let uv_a = vec2(sin(phi) * 0.8, cos(phi) * 0.8 + dir.y * 2.5);
     let coarse = fbm(uv_a * vec2(2.8, 2.0) + vec2(t * 0.12, 0.0));
     let fine = fbm(uv_a * vec2(6.5, 3.5) - vec2(t * 0.22, t * 0.08));
 
@@ -309,5 +353,5 @@ fn get_aurora(dir: vec3<f32>, time: f32) -> vec3<f32> {
     var aurora_col = mix(aurora_green, aurora_cyan, smoothstep(0.30, 0.60, fine));
     aurora_col = mix(aurora_col, aurora_purple, smoothstep(0.65, 0.85, fine) * 0.5);
 
-    return aurora_col * aurora_mask * 2.5;
+    return aurora_col * aurora_mask * ocean_settings.aurora_brightness;
 }

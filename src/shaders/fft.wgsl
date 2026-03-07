@@ -78,6 +78,50 @@ struct OceanSettingsUniform {
     cascade_data: array<vec4<f32>, 6>,
     cascade_count: u32,
     _pad_cascade: vec3<u32>,
+    sunset_scatter_color: vec3<f32>,      // 1.05, 0.88, 0.72
+    sunset_scatter_intensity: f32,       // 0.55
+    foam_base_color: vec3<f32>,          // 0.95, 0.98, 0.92
+    sss_min_height: f32,                 // -0.5
+    sss_max_height: f32,                 // 1.5
+    sss_power: f32,                      // 8.0
+    sss_intensity: f32,                  // 1.0
+    detail_fade: f32,                    // 800.0
+    ambient_scale: f32,                  // 0.08
+    blend_strength: f32,                 // 0.4
+    bloom_scale: f32,                    // 0.3
+    reflection_min: f32,                 // 0.2
+    reflection_max: f32,                 // 0.9
+    moon_light_dim: f32,                 // 0.25
+    sky_zenith_gradient_exp: f32,        // 1.5
+    horizon_glow_mult: f32,              // 1.2
+    sunset_orange_weight: f32,           // 0.55
+    sunset_intensity: f32,               // 3.8
+    sun_halo_intensity: f32,             // 0.02
+    moon_halo_intensity: f32,            // 0.1
+    micro_uv_freq: f32,                  // 0.01
+    micro_time_freq: f32,                // 0.001
+    micro_strength_mod: f32,             // 0.05
+    foam_crest_width: f32,               // 0.2
+    caustic_aberration: f32,             // 0.01
+    caustic_smooth_low: f32,             // 0.6
+    caustic_smooth_high: f32,            // 1.0
+    aurora_brightness: f32,              // 2.5
+    aurora_y_threshold: f32,             // 0.04
+    water_brightness_mod: f32,           // 0.8
+    decay_factor: f32,                   // 0.98
+    dissipation_factor: f32,             // 0.99
+    warp_uv_scale: f32,                  // 0.5
+    warp_strength: f32,                  // 0.5
+    warp_time_scale: f32,                // 0.1
+    foam_octaves: u32,                   // 3u
+    foam_power: f32,                     // 1.5
+    hash_scale: f32,                     // 0.1031
+    hash_dot: f32,                       // 33.33
+    steepness_threshold_low: f32,        // 0.1
+    steepness_threshold_high: f32,       // 0.8
+    y_displacement_weight: f32,          // 0.5
+    wave_epsilon: f32,                   // 0.0001
+    _pad_final: f32,                     // Padding
 };
 
 @group(0) @binding(0)
@@ -160,7 +204,7 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     var h_dx = vec2<f32>(0.0);
     var h_dz = vec2<f32>(0.0);
 
-    if (k_len > 0.0001) {
+    if (k_len > ocean_settings.wave_epsilon) {
         let k_norm = k / k_len;
         // i * complex is: (-imag, real)
         h_dx = vec2<f32>(-h_tilda.y * k_norm.x, h_tilda.x * k_norm.x);

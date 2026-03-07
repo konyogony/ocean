@@ -75,6 +75,50 @@ struct OceanSettingsUniform {
     cascade_data: array<vec4<f32>, 6>,
     cascade_count: u32,
     _pad_cascade: vec3<u32>,
+    sunset_scatter_color: vec3<f32>,      // 1.05, 0.88, 0.72
+    sunset_scatter_intensity: f32,       // 0.55
+    foam_base_color: vec3<f32>,          // 0.95, 0.98, 0.92
+    sss_min_height: f32,                 // -0.5
+    sss_max_height: f32,                 // 1.5
+    sss_power: f32,                      // 8.0
+    sss_intensity: f32,                  // 1.0
+    detail_fade: f32,                    // 800.0
+    ambient_scale: f32,                  // 0.08
+    blend_strength: f32,                 // 0.4
+    bloom_scale: f32,                    // 0.3
+    reflection_min: f32,                 // 0.2
+    reflection_max: f32,                 // 0.9
+    moon_light_dim: f32,                 // 0.25
+    sky_zenith_gradient_exp: f32,        // 1.5
+    horizon_glow_mult: f32,              // 1.2
+    sunset_orange_weight: f32,           // 0.55
+    sunset_intensity: f32,               // 3.8
+    sun_halo_intensity: f32,             // 0.02
+    moon_halo_intensity: f32,            // 0.1
+    micro_uv_freq: f32,                  // 0.01
+    micro_time_freq: f32,                // 0.001
+    micro_strength_mod: f32,             // 0.05
+    foam_crest_width: f32,               // 0.2
+    caustic_aberration: f32,             // 0.01
+    caustic_smooth_low: f32,             // 0.6
+    caustic_smooth_high: f32,            // 1.0
+    aurora_brightness: f32,              // 2.5
+    aurora_y_threshold: f32,             // 0.04
+    water_brightness_mod: f32,           // 0.8
+    decay_factor: f32,                   // 0.98
+    dissipation_factor: f32,             // 0.99
+    warp_uv_scale: f32,                  // 0.5
+    warp_strength: f32,                  // 0.5
+    warp_time_scale: f32,                // 0.1
+    foam_octaves: u32,                   // 3u
+    foam_power: f32,                     // 1.5
+    hash_scale: f32,                     // 0.1031
+    hash_dot: f32,                       // 33.33
+    steepness_threshold_low: f32,        // 0.1
+    steepness_threshold_high: f32,       // 0.8
+    y_displacement_weight: f32,          // 0.5
+    wave_epsilon: f32,                   // 0.0001
+    _pad_final: f32,                     // Padding
 };
 
 struct CameraUniform {
@@ -86,10 +130,6 @@ struct CameraUniform {
     delta_time: f32,
     _padding: vec2<f32>,
 };
-
-
-const DECAY_FACTOR: f32 = 0.98;
-const DISSIPATION_FACTOR: f32 = 0.99;
 
 @group(0) @binding(0) var<uniform> ocean_settings: OceanSettingsUniform;
 @group(1) @binding(0) var<uniform> camera: CameraUniform;
@@ -103,31 +143,30 @@ const DISSIPATION_FACTOR: f32 = 0.99;
 @group(3) @binding(2) var sampler_height_field: sampler;
 
 fn get_foam(uv: vec2<f32>, time: f32) -> f32 {
-    let warp_uv = uv * 0.5;
-    let warp_strength = 0.5;
+    let warp_uv = uv * ocean_settings.warp_uv_scale;
     let warp = vec2<f32>(
-        noise(warp_uv + vec2(time * 0.1, 0.0)),
-        noise(warp_uv + vec2(5.2, 1.3) - vec2(0.0, time * 0.1))
+        noise(warp_uv + vec2(time * ocean_settings.warp_time_scale, 0.0)),
+        noise(warp_uv + vec2(5.2, 1.3) - vec2(0.0, time * ocean_settings.warp_time_scale))
     );
 
-    let p = uv + warp * warp_strength;
+    let p = uv + warp * ocean_settings.warp_strength;
 
     var value: f32 = 0.0;
     var amplitude: f32 = 0.5;
     var current_p = p;
     
-    for (var i = 0u; i < 3u; i++) {
+    for (var i = 0u; i < ocean_settings.foam_octaves; i++) {
         let n = noise(current_p); 
         value += n * amplitude;
         current_p *= 2.0; 
         amplitude *= 0.5;
     }
-    return pow(value, 1.5); 
+    return pow(value, ocean_settings.foam_power); 
 }
 
 fn hash21(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3(p.xyx) * .1031);
-    p3 += dot(p3, p3.yzx + 33.33);
+    var p3 = fract(vec3(p.xyx) * ocean_settings.hash_scale);
+    p3 += dot(p3, p3.yzx + ocean_settings.hash_dot);
     return fract((p3.x + p3.y) * p3.z);
 }
 
@@ -141,8 +180,6 @@ fn noise(p: vec2<f32>) -> f32 {
                    hash21(i + vec2(1.0, 1.0)), u.x), u.y);
 }
 
-
-// Generating the foam first
 @compute @workgroup_size(16, 16, 1)
 fn compute_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let dimensions = vec2<f32>(textureDimensions(foam_texture_write));
@@ -151,27 +188,24 @@ fn compute_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let h_dx_val = textureLoad(texture_h_dx, global_id.xy, 0);
     let dz_val = textureLoad(texture_dz, global_id.xy, 0);
 
-    let amp = ocean_settings.amplitude_scale;
     let chop = ocean_settings.chop_scale;
 
     let x_displacement = length(vec2(h_dx_val.z * chop, dz_val.x * chop));
     let y_displacement = abs(h_dx_val.x * chop);
-    let steepness_factor = smoothstep(0.1, 0.8, x_displacement + y_displacement * 0.5);
+    let steepness_factor = smoothstep(ocean_settings.steepness_threshold_low, ocean_settings.steepness_threshold_high, x_displacement + y_displacement * ocean_settings.y_displacement_weight);
 
     let noise_foam = get_foam(uv_float * ocean_settings.foam_scale, camera.time);
     let generated_foam_val = mix(noise_foam, 1.0, steepness_factor * ocean_settings.foam_threshold);
 
     let prev_foam_val = textureLoad(foam_texture_read, global_id.xy).r;
-    let new_foam_val = max(generated_foam_val, prev_foam_val * DECAY_FACTOR);
+    let new_foam_val = max(generated_foam_val, prev_foam_val * ocean_settings.decay_factor);
 
     textureStore(foam_texture_write, global_id.xy, vec4<f32>(new_foam_val, new_foam_val, new_foam_val, 1.0));
 }
 
-// then we advect it with time
 @compute @workgroup_size(16, 16, 1)
 fn advect_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let dimensions_storage = textureDimensions(texture_h_dx);
-    let uv_float = vec2<f32>(global_id.xy) / vec2<f32>(dimensions_storage);
 
     let h_dx_val = textureLoad(texture_h_dx, global_id.xy, 0);
     let dz_val = textureLoad(texture_dz, global_id.xy, 0);
@@ -184,18 +218,15 @@ fn advect_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let advection_dir = vec2(dx * chop, dz * chop);
     let advection_offset_pixels = advection_dir * ocean_settings.foam_speed * camera.delta_time;
 
-    // now we know WHERE it came from
     let current_pixel_coords = vec2<f32>(global_id.xy);
     let sampled_pixel_coords_float = current_pixel_coords - advection_offset_pixels;
 
     let clamped_x = clamp(i32(round(sampled_pixel_coords_float.x)), 0, i32(dimensions_storage.x - 1));
     let clamped_y = clamp(i32(round(sampled_pixel_coords_float.y)), 0, i32(dimensions_storage.y - 1));
-    let final_sampled_coords = vec2<u32>(u32(clamped_x), u32(clamped_y)); // textureLoad takes u32 coords
+    let final_sampled_coords = vec2<u32>(u32(clamped_x), u32(clamped_y));
 
     let sampled_foam = textureLoad(foam_texture_read, final_sampled_coords).r;
-    let advected_val = sampled_foam * DISSIPATION_FACTOR;
+    let advected_val = sampled_foam * ocean_settings.dissipation_factor;
 
     textureStore(foam_texture_write, global_id.xy, vec4<f32>(advected_val, advected_val, advected_val, 1.0));
-
 }
-

@@ -3,7 +3,7 @@ use std::{
     fs::{self, read_to_string, write},
     path::Path,
 };
-// if this is changed, then uniform has to be re-calculated
+
 pub const MAX_CASCADES: usize = 6;
 pub const TOTAL_BINDINGS: usize = 1 + MAX_CASCADES * 4;
 
@@ -83,6 +83,49 @@ pub struct OceanPreset {
     pub cloud_density_high: f32,
     pub daynight_cycle: f32,
     pub cascade_data: Vec<CascadePreset>,
+    pub sunset_scatter_color: [f32; 3],
+    pub sunset_scatter_intensity: f32,
+    pub foam_base_color: [f32; 3],
+    pub sss_min_height: f32,
+    pub sss_max_height: f32,
+    pub sss_power: f32,
+    pub sss_intensity: f32,
+    pub detail_fade: f32,
+    pub ambient_scale: f32,
+    pub blend_strength: f32,
+    pub bloom_scale: f32,
+    pub reflection_min: f32,
+    pub reflection_max: f32,
+    pub moon_light_dim: f32,
+    pub sky_zenith_gradient_exp: f32,
+    pub horizon_glow_mult: f32,
+    pub sunset_orange_weight: f32,
+    pub sunset_intensity: f32,
+    pub sun_halo_intensity: f32,
+    pub moon_halo_intensity: f32,
+    pub micro_uv_freq: f32,
+    pub micro_time_freq: f32,
+    pub micro_strength_mod: f32,
+    pub foam_crest_width: f32,
+    pub caustic_aberration: f32,
+    pub caustic_smooth_low: f32,
+    pub caustic_smooth_high: f32,
+    pub aurora_brightness: f32,
+    pub aurora_y_threshold: f32,
+    pub water_brightness_mod: f32,
+    pub decay_factor: f32,
+    pub dissipation_factor: f32,
+    pub warp_uv_scale: f32,
+    pub warp_strength: f32,
+    pub warp_time_scale: f32,
+    pub foam_octaves: u32,
+    pub foam_power: f32,
+    pub hash_scale: f32,
+    pub hash_dot: f32,
+    pub steepness_threshold_low: f32,
+    pub steepness_threshold_high: f32,
+    pub y_displacement_weight: f32,
+    pub wave_epsilon: f32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -97,7 +140,6 @@ impl OceanPreset {
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
             let path = entry.path();
-
             if path.extension().and_then(|e| e.to_str()) == Some("json") {
                 if let Some(stem) = path.file_stem().and_then(|n| n.to_str()) {
                     presets.push(stem.to_string());
@@ -122,13 +164,11 @@ impl OceanPreset {
     ) {
         let builder = OceanSettingsBuilder::from_uniform(&ocean_settings);
         let mut preset = OceanPreset::from_builder(builder);
-
         preset.preset_name = preset_name.to_string();
         preset.author = author.to_string();
         preset.description = description.to_string();
         preset.created_at = chrono::Local::now().timestamp();
         preset.last_modified_at = chrono::Local::now().timestamp();
-
         let json_path = directory.join(format!("{preset_name}.json"));
         let json_data =
             serde_json::to_string_pretty(&preset).expect("Couldnt format to a json string");
@@ -143,13 +183,11 @@ impl OceanPreset {
     ) {
         let builder = OceanSettingsBuilder::from_uniform(&new_ocean_settings);
         let mut preset = OceanPreset::from_builder(builder);
-
         preset.preset_name = preset_name.to_string();
         preset.author = current_ocean_settings.author;
         preset.description = current_ocean_settings.description;
         preset.created_at = current_ocean_settings.created_at;
         preset.last_modified_at = chrono::Local::now().timestamp();
-
         let json_path = directory.join(format!("{preset_name}.json"));
         let json_data =
             serde_json::to_string_pretty(&preset).expect("Couldnt format to a json string");
@@ -231,6 +269,49 @@ impl OceanPreset {
             cloud_density_high: builder.cloud_density_high,
             daynight_cycle: builder.daynight_cycle,
             cascade_data: builder.cascade_data,
+            sunset_scatter_color: builder.sunset_scatter_color,
+            sunset_scatter_intensity: builder.sunset_scatter_intensity,
+            foam_base_color: builder.foam_base_color,
+            sss_min_height: builder.sss_min_height,
+            sss_max_height: builder.sss_max_height,
+            sss_power: builder.sss_power,
+            sss_intensity: builder.sss_intensity,
+            detail_fade: builder.detail_fade,
+            ambient_scale: builder.ambient_scale,
+            blend_strength: builder.blend_strength,
+            bloom_scale: builder.bloom_scale,
+            reflection_min: builder.reflection_min,
+            reflection_max: builder.reflection_max,
+            moon_light_dim: builder.moon_light_dim,
+            sky_zenith_gradient_exp: builder.sky_zenith_gradient_exp,
+            horizon_glow_mult: builder.horizon_glow_mult,
+            sunset_orange_weight: builder.sunset_orange_weight,
+            sunset_intensity: builder.sunset_intensity,
+            sun_halo_intensity: builder.sun_halo_intensity,
+            moon_halo_intensity: builder.moon_halo_intensity,
+            micro_uv_freq: builder.micro_uv_freq,
+            micro_time_freq: builder.micro_time_freq,
+            micro_strength_mod: builder.micro_strength_mod,
+            foam_crest_width: builder.foam_crest_width,
+            caustic_aberration: builder.caustic_aberration,
+            caustic_smooth_low: builder.caustic_smooth_low,
+            caustic_smooth_high: builder.caustic_smooth_high,
+            aurora_brightness: builder.aurora_brightness,
+            aurora_y_threshold: builder.aurora_y_threshold,
+            water_brightness_mod: builder.water_brightness_mod,
+            decay_factor: builder.decay_factor,
+            dissipation_factor: builder.dissipation_factor,
+            warp_uv_scale: builder.warp_uv_scale,
+            warp_strength: builder.warp_strength,
+            warp_time_scale: builder.warp_time_scale,
+            foam_octaves: builder.foam_octaves,
+            foam_power: builder.foam_power,
+            hash_scale: builder.hash_scale,
+            hash_dot: builder.hash_dot,
+            steepness_threshold_low: builder.steepness_threshold_low,
+            steepness_threshold_high: builder.steepness_threshold_high,
+            y_displacement_weight: builder.y_displacement_weight,
+            wave_epsilon: builder.wave_epsilon,
         }
     }
 }
@@ -314,7 +395,50 @@ pub struct OceanSettingsUniform {
     pub cascade_data: [[f32; 4]; MAX_CASCADES],
     pub cascade_count: u32,
     pub _pad_cascade: [u32; 3],
-    pub _pad_end: [u32; 4],
+    pub sunset_scatter_color: [f32; 3],
+    pub sunset_scatter_intensity: f32,
+    pub foam_base_color: [f32; 3],
+    pub sss_min_height: f32,
+    pub sss_max_height: f32,
+    pub sss_power: f32,
+    pub sss_intensity: f32,
+    pub detail_fade: f32,
+    pub ambient_scale: f32,
+    pub blend_strength: f32,
+    pub bloom_scale: f32,
+    pub reflection_min: f32,
+    pub reflection_max: f32,
+    pub moon_light_dim: f32,
+    pub sky_zenith_gradient_exp: f32,
+    pub horizon_glow_mult: f32,
+    pub sunset_orange_weight: f32,
+    pub sunset_intensity: f32,
+    pub sun_halo_intensity: f32,
+    pub moon_halo_intensity: f32,
+    pub micro_uv_freq: f32,
+    pub micro_time_freq: f32,
+    pub micro_strength_mod: f32,
+    pub foam_crest_width: f32,
+    pub caustic_aberration: f32,
+    pub caustic_smooth_low: f32,
+    pub caustic_smooth_high: f32,
+    pub aurora_brightness: f32,
+    pub aurora_y_threshold: f32,
+    pub water_brightness_mod: f32,
+    pub decay_factor: f32,
+    pub dissipation_factor: f32,
+    pub warp_uv_scale: f32,
+    pub warp_strength: f32,
+    pub warp_time_scale: f32,
+    pub foam_octaves: u32,
+    pub foam_power: f32,
+    pub hash_scale: f32,
+    pub hash_dot: f32,
+    pub steepness_threshold_low: f32,
+    pub steepness_threshold_high: f32,
+    pub y_displacement_weight: f32,
+    pub wave_epsilon: f32,
+    pub _pad_final: [f32; 5],
 }
 
 pub struct OceanSettingsBuilder {
@@ -387,6 +511,49 @@ pub struct OceanSettingsBuilder {
     cloud_density_low: f32,
     cloud_density_high: f32,
     cascade_data: Vec<CascadePreset>,
+    sunset_scatter_color: [f32; 3],
+    sunset_scatter_intensity: f32,
+    foam_base_color: [f32; 3],
+    sss_min_height: f32,
+    sss_max_height: f32,
+    sss_power: f32,
+    sss_intensity: f32,
+    detail_fade: f32,
+    ambient_scale: f32,
+    blend_strength: f32,
+    bloom_scale: f32,
+    reflection_min: f32,
+    reflection_max: f32,
+    moon_light_dim: f32,
+    sky_zenith_gradient_exp: f32,
+    horizon_glow_mult: f32,
+    sunset_orange_weight: f32,
+    sunset_intensity: f32,
+    sun_halo_intensity: f32,
+    moon_halo_intensity: f32,
+    micro_uv_freq: f32,
+    micro_time_freq: f32,
+    micro_strength_mod: f32,
+    foam_crest_width: f32,
+    caustic_aberration: f32,
+    caustic_smooth_low: f32,
+    caustic_smooth_high: f32,
+    aurora_brightness: f32,
+    aurora_y_threshold: f32,
+    water_brightness_mod: f32,
+    decay_factor: f32,
+    dissipation_factor: f32,
+    warp_uv_scale: f32,
+    warp_strength: f32,
+    warp_time_scale: f32,
+    foam_octaves: u32,
+    foam_power: f32,
+    hash_scale: f32,
+    hash_dot: f32,
+    steepness_threshold_low: f32,
+    steepness_threshold_high: f32,
+    y_displacement_weight: f32,
+    wave_epsilon: f32,
 }
 
 impl Default for OceanSettingsBuilder {
@@ -474,6 +641,49 @@ impl Default for OceanSettingsBuilder {
                     amplitude: 0.08,
                 },
             ],
+            sunset_scatter_color: [1.05, 0.88, 0.72],
+            sunset_scatter_intensity: 0.55,
+            foam_base_color: [0.95, 0.98, 0.92],
+            sss_min_height: -0.5,
+            sss_max_height: 1.5,
+            sss_power: 8.0,
+            sss_intensity: 1.0,
+            detail_fade: 800.0,
+            ambient_scale: 0.08,
+            blend_strength: 0.4,
+            bloom_scale: 0.3,
+            reflection_min: 0.2,
+            reflection_max: 0.9,
+            moon_light_dim: 0.25,
+            sky_zenith_gradient_exp: 1.5,
+            horizon_glow_mult: 1.2,
+            sunset_orange_weight: 0.55,
+            sunset_intensity: 3.8,
+            sun_halo_intensity: 0.02,
+            moon_halo_intensity: 0.1,
+            micro_uv_freq: 0.01,
+            micro_time_freq: 0.001,
+            micro_strength_mod: 0.05,
+            foam_crest_width: 0.2,
+            caustic_aberration: 0.01,
+            caustic_smooth_low: 0.6,
+            caustic_smooth_high: 1.0,
+            aurora_brightness: 2.5,
+            aurora_y_threshold: 0.04,
+            water_brightness_mod: 0.8,
+            decay_factor: 0.98,
+            dissipation_factor: 0.99,
+            warp_uv_scale: 0.5,
+            warp_strength: 0.5,
+            warp_time_scale: 0.1,
+            foam_octaves: 3,
+            foam_power: 1.5,
+            hash_scale: 0.1031,
+            hash_dot: 33.33,
+            steepness_threshold_low: 0.1,
+            steepness_threshold_high: 0.8,
+            y_displacement_weight: 0.5,
+            wave_epsilon: 0.0001,
         }
     }
 }
@@ -483,421 +693,295 @@ impl OceanSettingsBuilder {
         self.mesh_size = v;
         self
     }
-    pub fn mesh_subdivisions(mut self, v: u32) -> Self {
-        self.mesh_subdivisions = v;
-        self
-    }
-
-    pub fn fft_size(mut self, v: f32) -> Self {
-        self.fft_size = v;
-        self
-    }
-
-    pub fn fft_subdivisions(mut self, v: u32) -> Self {
-        self.fft_subdivisions = v;
-        self
-    }
-
-    pub fn time_scale(mut self, v: f32) -> Self {
-        self.time_scale = v;
-        self
-    }
-
-    pub fn chop_scale(mut self, v: f32) -> Self {
-        self.chop_scale = v;
-        self
-    }
-
-    pub fn amplitude_scale(mut self, v: f32) -> Self {
-        self.amplitude_scale = v;
-        self
-    }
-
-    pub fn wind_vector(mut self, v: [f32; 2]) -> Self {
-        self.wind_vector = v;
-        self
-    }
-
-    pub fn amplitude(mut self, v: f32) -> Self {
-        self.amplitude = v;
-        self
-    }
-
-    pub fn l_small(mut self, v: f32) -> Self {
-        self.l_small = v;
-        self
-    }
-
-    pub fn max_w(mut self, v: f32) -> Self {
-        self.max_w = v;
-        self
-    }
-
-    pub fn fovy(mut self, v: f32) -> Self {
-        self.fovy = v;
-        self
-    }
-
-    pub fn zfar(mut self, v: f32) -> Self {
-        self.zfar = v;
-        self
-    }
-
-    pub fn cam_speed(mut self, v: f32) -> Self {
-        self.cam_speed = v;
-        self
-    }
-
-    pub fn cam_boost(mut self, v: f32) -> Self {
-        self.cam_boost = v;
-        self
-    }
-
-    pub fn cam_sensitivity(mut self, v: f32) -> Self {
-        self.cam_sensitivity = v;
-        self
-    }
-
-    pub fn roughness(mut self, v: f32) -> Self {
-        self.roughness = v;
-        self
-    }
-
-    pub fn f_0(mut self, v: f32) -> Self {
-        self.f_0 = v;
-        self
-    }
-
-    pub fn specular_scale(mut self, v: f32) -> Self {
-        self.specular_scale = v;
-        self
-    }
-
-    pub fn reflection_scale(mut self, v: f32) -> Self {
-        self.reflection_scale = v;
-        self
-    }
-
-    pub fn foam_scale(mut self, v: f32) -> Self {
-        self.foam_scale = v;
-        self
-    }
-
-    pub fn sss_distortion_scale(mut self, v: f32) -> Self {
-        self.sss_distortion_scale = v;
-        self
-    }
-
-    pub fn deep_color(mut self, v: [f32; 4]) -> Self {
-        self.deep_color = v;
-        self
-    }
-
-    pub fn shallow_color(mut self, v: [f32; 4]) -> Self {
-        self.shallow_color = v;
-        self
-    }
-
-    pub fn sss_color(mut self, v: [f32; 4]) -> Self {
-        self.sss_color = v;
-        self
-    }
-
-    pub fn sun_color(mut self, v: [f32; 4]) -> Self {
-        self.sun_color = v;
-        self
-    }
-
     pub fn ocean_seed(mut self, v: u32) -> Self {
         self.ocean_seed = v;
         self
     }
-
-    pub fn caustic_scale(mut self, v: f32) -> Self {
-        self.caustic_scale = v;
+    pub fn mesh_subdivisions(mut self, v: u32) -> Self {
+        self.mesh_subdivisions = v;
         self
     }
-
-    pub fn caustic_size(mut self, v: f32) -> Self {
-        self.caustic_size = v;
+    pub fn fft_size(mut self, v: f32) -> Self {
+        self.fft_size = v;
         self
     }
-
-    pub fn caustic_speed(mut self, v: f32) -> Self {
-        self.caustic_speed = v;
+    pub fn fft_subdivisions(mut self, v: u32) -> Self {
+        self.fft_subdivisions = v;
         self
     }
-
-    pub fn caustic_intensity(mut self, v: f32) -> Self {
-        self.caustic_intensity = v;
+    pub fn time_scale(mut self, v: f32) -> Self {
+        self.time_scale = v;
         self
     }
-
-    pub fn caustic_color_tint(mut self, v: [f32; 4]) -> Self {
-        self.caustic_color_tint = v;
+    pub fn chop_scale(mut self, v: f32) -> Self {
+        self.chop_scale = v;
         self
     }
-
-    pub fn caustic_octaves(mut self, v: u32) -> Self {
-        self.caustic_octaves = v;
+    pub fn amplitude_scale(mut self, v: f32) -> Self {
+        self.amplitude_scale = v;
         self
     }
-
-    pub fn caustic_depth(mut self, v: f32) -> Self {
-        self.caustic_depth = v;
+    pub fn wind_vector(mut self, v: [f32; 2]) -> Self {
+        self.wind_vector = v;
         self
     }
-
-    pub fn caustic_max_distance(mut self, v: f32) -> Self {
-        self.caustic_max_distance = v;
+    pub fn amplitude(mut self, v: f32) -> Self {
+        self.amplitude = v;
         self
     }
-
-    pub fn micro_normal_strength(mut self, v: f32) -> Self {
-        self.micro_normal_strength = v;
+    pub fn roughness(mut self, v: f32) -> Self {
+        self.roughness = v;
         self
     }
-
-    pub fn foam_threshold(mut self, v: f32) -> Self {
-        self.foam_threshold = v;
-        self
-    }
-
-    pub fn foam_speed(mut self, v: f32) -> Self {
-        self.foam_speed = v;
-        self
-    }
-
-    pub fn foam_roughness(mut self, v: f32) -> Self {
-        self.foam_roughness = v;
-        self
-    }
-
     pub fn daynight_cycle(mut self, v: f32) -> Self {
         self.daynight_cycle = v;
         self
     }
-
-    pub fn sky_color_day_zenith(mut self, v: [f32; 4]) -> Self {
-        self.sky_color_day_zenith = v;
+    pub fn sunset_intensity(mut self, v: f32) -> Self {
+        self.sunset_intensity = v;
         self
     }
-
-    pub fn sky_color_day_horizon(mut self, v: [f32; 4]) -> Self {
-        self.sky_color_day_horizon = v;
-        self
-    }
-
-    pub fn sky_color_night_zenith(mut self, v: [f32; 4]) -> Self {
-        self.sky_color_night_zenith = v;
-        self
-    }
-
-    pub fn sky_color_night_horizon(mut self, v: [f32; 4]) -> Self {
-        self.sky_color_night_horizon = v;
-        self
-    }
-
-    pub fn sky_color_sunset_orange(mut self, v: [f32; 4]) -> Self {
-        self.sky_color_sunset_orange = v;
-        self
-    }
-
-    pub fn sky_color_sunset_pink(mut self, v: [f32; 4]) -> Self {
-        self.sky_color_sunset_pink = v;
-        self
-    }
-
-    pub fn sky_color_horizon_glow(mut self, v: [f32; 4]) -> Self {
-        self.sky_color_horizon_glow = v;
-        self
-    }
-
-    pub fn moon_color_lit(mut self, v: [f32; 4]) -> Self {
-        self.moon_color_lit = v;
-        self
-    }
-
-    pub fn moon_color_dark(mut self, v: [f32; 4]) -> Self {
-        self.moon_color_dark = v;
-        self
-    }
-
-    pub fn cloud_color_night(mut self, v: [f32; 4]) -> Self {
-        self.cloud_color_night = v;
-        self
-    }
-
-    pub fn cloud_color_day(mut self, v: [f32; 4]) -> Self {
-        self.cloud_color_day = v;
-        self
-    }
-
-    pub fn apply_preset(mut self, preset: &OceanPreset) -> Self {
-        self.sun_color = preset.sun_color;
-        self.sss_color = preset.sss_color;
-        self.shallow_color = preset.shallow_color;
-        self.deep_color = preset.deep_color;
-        self.caustic_color_tint = preset.caustic_color_tint;
-        self.foam_roughness = preset.foam_roughness;
-        self.foam_speed = preset.foam_speed;
-        self.foam_threshold = preset.foam_threshold;
-        self.foam_scale = preset.foam_scale;
-        self.micro_normal_strength = preset.micro_normal_strength;
-        self.caustic_max_distance = preset.caustic_max_distance;
-        self.caustic_depth = preset.caustic_depth;
-        self.caustic_octaves = preset.caustic_octaves;
-        self.caustic_intensity = preset.caustic_intensity;
-        self.caustic_speed = preset.caustic_speed;
-        self.caustic_size = preset.caustic_size;
-        self.caustic_scale = preset.caustic_scale;
-        self.sss_distortion_scale = preset.sss_distortion_scale;
-        self.reflection_scale = preset.reflection_scale;
-        self.specular_scale = preset.specular_scale;
-        self.f_0 = preset.f_0;
-        self.amplitude_scale = preset.amplitude_scale;
-        self.amplitude = preset.amplitude;
-        self.wind_vector = preset.wind_vector;
-        self.roughness = preset.roughness;
-        self.max_w = preset.max_w;
-        self.l_small = preset.l_small;
-        self.fft_subdivisions = preset.fft_subdivisions;
-        self.fft_size = preset.fft_size;
-        self.daynight_cycle = preset.daynight_cycle;
-        self.sky_color_day_zenith = preset.sky_color_day_zenith;
-        self.sky_color_day_horizon = preset.sky_color_day_horizon;
-        self.sky_color_night_zenith = preset.sky_color_night_zenith;
-        self.sky_color_night_horizon = preset.sky_color_night_horizon;
-        self.sky_color_sunset_orange = preset.sky_color_sunset_orange;
-        self.sky_color_sunset_pink = preset.sky_color_sunset_pink;
-        self.sky_color_horizon_glow = preset.sky_color_horizon_glow;
-        self.moon_color_lit = preset.moon_color_lit;
-        self.moon_color_dark = preset.moon_color_dark;
-        self.cloud_color_night = preset.cloud_color_night;
-        self.cloud_color_day = preset.cloud_color_day;
-        self.sun_offset_z = preset.sun_offset_z;
-        self.sun_size_inner = preset.sun_size_inner;
-        self.sun_size_outer = preset.sun_size_outer;
-        self.sun_halo_power = preset.sun_halo_power;
-        self.moon_radius = preset.moon_radius;
-        self.moon_dist = preset.moon_dist;
-        self.moon_phase_offset = preset.moon_phase_offset;
-        self.moon_crater_scale = preset.moon_crater_scale;
-        self.moon_halo_power = preset.moon_halo_power;
-        self.star_count = preset.star_count;
-        self.star_threshold = preset.star_threshold;
-        self.star_blink_speed = preset.star_blink_speed;
-        self.cloud_speed = preset.cloud_speed;
-        self.cloud_density_low = preset.cloud_density_low;
-        self.cloud_density_high = preset.cloud_density_high;
-
+    pub fn water_brightness_mod(mut self, v: f32) -> Self {
+        self.water_brightness_mod = v;
         self
     }
 
     pub fn from_preset(preset: &OceanPreset) -> Self {
-        Self::default().apply_preset(preset)
+        let mut builder = Self::default();
+        builder.sun_color = preset.sun_color;
+        builder.sss_color = preset.sss_color;
+        builder.shallow_color = preset.shallow_color;
+        builder.deep_color = preset.deep_color;
+        builder.caustic_color_tint = preset.caustic_color_tint;
+        builder.foam_roughness = preset.foam_roughness;
+        builder.foam_speed = preset.foam_speed;
+        builder.foam_threshold = preset.foam_threshold;
+        builder.foam_scale = preset.foam_scale;
+        builder.micro_normal_strength = preset.micro_normal_strength;
+        builder.caustic_max_distance = preset.caustic_max_distance;
+        builder.caustic_depth = preset.caustic_depth;
+        builder.caustic_octaves = preset.caustic_octaves;
+        builder.caustic_intensity = preset.caustic_intensity;
+        builder.caustic_speed = preset.caustic_speed;
+        builder.caustic_size = preset.caustic_size;
+        builder.caustic_scale = preset.caustic_scale;
+        builder.sss_distortion_scale = preset.sss_distortion_scale;
+        builder.reflection_scale = preset.reflection_scale;
+        builder.specular_scale = preset.specular_scale;
+        builder.f_0 = preset.f_0;
+        builder.amplitude_scale = preset.amplitude_scale;
+        builder.amplitude = preset.amplitude;
+        builder.wind_vector = preset.wind_vector;
+        builder.roughness = preset.roughness;
+        builder.max_w = preset.max_w;
+        builder.l_small = preset.l_small;
+        builder.fft_subdivisions = preset.fft_subdivisions;
+        builder.fft_size = preset.fft_size;
+        builder.daynight_cycle = preset.daynight_cycle;
+        builder.sky_color_day_zenith = preset.sky_color_day_zenith;
+        builder.sky_color_day_horizon = preset.sky_color_day_horizon;
+        builder.sky_color_night_zenith = preset.sky_color_night_zenith;
+        builder.sky_color_night_horizon = preset.sky_color_night_horizon;
+        builder.sky_color_sunset_orange = preset.sky_color_sunset_orange;
+        builder.sky_color_sunset_pink = preset.sky_color_sunset_pink;
+        builder.sky_color_horizon_glow = preset.sky_color_horizon_glow;
+        builder.moon_color_lit = preset.moon_color_lit;
+        builder.moon_color_dark = preset.moon_color_dark;
+        builder.cloud_color_night = preset.cloud_color_night;
+        builder.cloud_color_day = preset.cloud_color_day;
+        builder.sun_offset_z = preset.sun_offset_z;
+        builder.sun_size_inner = preset.sun_size_inner;
+        builder.sun_size_outer = preset.sun_size_outer;
+        builder.sun_halo_power = preset.sun_halo_power;
+        builder.moon_radius = preset.moon_radius;
+        builder.moon_dist = preset.moon_dist;
+        builder.moon_phase_offset = preset.moon_phase_offset;
+        builder.moon_crater_scale = preset.moon_crater_scale;
+        builder.moon_halo_power = preset.moon_halo_power;
+        builder.star_count = preset.star_count;
+        builder.star_threshold = preset.star_threshold;
+        builder.star_blink_speed = preset.star_blink_speed;
+        builder.cloud_speed = preset.cloud_speed;
+        builder.cloud_density_low = preset.cloud_density_low;
+        builder.cloud_density_high = preset.cloud_density_high;
+        builder.cascade_data = preset.cascade_data.clone();
+        builder.sunset_scatter_color = preset.sunset_scatter_color;
+        builder.sunset_scatter_intensity = preset.sunset_scatter_intensity;
+        builder.foam_base_color = preset.foam_base_color;
+        builder.sss_min_height = preset.sss_min_height;
+        builder.sss_max_height = preset.sss_max_height;
+        builder.sss_power = preset.sss_power;
+        builder.sss_intensity = preset.sss_intensity;
+        builder.detail_fade = preset.detail_fade;
+        builder.ambient_scale = preset.ambient_scale;
+        builder.blend_strength = preset.blend_strength;
+        builder.bloom_scale = preset.bloom_scale;
+        builder.reflection_min = preset.reflection_min;
+        builder.reflection_max = preset.reflection_max;
+        builder.moon_light_dim = preset.moon_light_dim;
+        builder.sky_zenith_gradient_exp = preset.sky_zenith_gradient_exp;
+        builder.horizon_glow_mult = preset.horizon_glow_mult;
+        builder.sunset_orange_weight = preset.sunset_orange_weight;
+        builder.sunset_intensity = preset.sunset_intensity;
+        builder.sun_halo_intensity = preset.sun_halo_intensity;
+        builder.moon_halo_intensity = preset.moon_halo_intensity;
+        builder.micro_uv_freq = preset.micro_uv_freq;
+        builder.micro_time_freq = preset.micro_time_freq;
+        builder.micro_strength_mod = preset.micro_strength_mod;
+        builder.foam_crest_width = preset.foam_crest_width;
+        builder.caustic_aberration = preset.caustic_aberration;
+        builder.caustic_smooth_low = preset.caustic_smooth_low;
+        builder.caustic_smooth_high = preset.caustic_smooth_high;
+        builder.aurora_brightness = preset.aurora_brightness;
+        builder.aurora_y_threshold = preset.aurora_y_threshold;
+        builder.water_brightness_mod = preset.water_brightness_mod;
+        builder.decay_factor = preset.decay_factor;
+        builder.dissipation_factor = preset.dissipation_factor;
+        builder.warp_uv_scale = preset.warp_uv_scale;
+        builder.warp_strength = preset.warp_strength;
+        builder.warp_time_scale = preset.warp_time_scale;
+        builder.foam_octaves = preset.foam_octaves;
+        builder.foam_power = preset.foam_power;
+        builder.hash_scale = preset.hash_scale;
+        builder.hash_dot = preset.hash_dot;
+        builder.steepness_threshold_low = preset.steepness_threshold_low;
+        builder.steepness_threshold_high = preset.steepness_threshold_high;
+        builder.y_displacement_weight = preset.y_displacement_weight;
+        builder.wave_epsilon = preset.wave_epsilon;
+        builder
     }
 
-    pub fn from_uniform(ocean_uniform: &OceanSettingsUniform) -> Self {
-        let mut cascade_vec = Vec::<CascadePreset>::new();
-        let cascade_count = ocean_uniform.cascade_count.min(MAX_CASCADES as u32) as usize;
-        for cascade_index in 0..cascade_count {
+    pub fn from_uniform(u: &OceanSettingsUniform) -> Self {
+        let mut cascade_vec = Vec::new();
+        let count = u.cascade_count.min(MAX_CASCADES as u32) as usize;
+        for i in 0..count {
             cascade_vec.push(CascadePreset {
-                // x --> size, y --> amplitude
-                fft_size: ocean_uniform.cascade_data[cascade_index][0],
-                amplitude: ocean_uniform.cascade_data[cascade_index][1],
+                fft_size: u.cascade_data[i][0],
+                amplitude: u.cascade_data[i][1],
             });
         }
         Self {
-            mesh_size: ocean_uniform.mesh_size,
-            mesh_subdivisions: ocean_uniform.mesh_subdivisions,
-            fft_size: ocean_uniform.fft_size,
-            fft_subdivisions: ocean_uniform.fft_subdivisions,
-            time_scale: ocean_uniform.time_scale,
-            ocean_seed: ocean_uniform.ocean_seed,
-            chop_scale: ocean_uniform.chop_scale,
-            amplitude_scale: ocean_uniform.amplitude_scale,
-            wind_vector: ocean_uniform.wind_vector,
-            amplitude: ocean_uniform.amplitude,
-            l_small: ocean_uniform.l_small,
-            max_w: ocean_uniform.max_w,
-            fovy: ocean_uniform.fovy,
-            zfar: ocean_uniform.zfar,
-            cam_speed: ocean_uniform.cam_speed,
-            cam_boost: ocean_uniform.cam_boost,
-            cam_sensitivity: ocean_uniform.cam_sensitivity,
-            roughness: ocean_uniform.roughness,
-            f_0: ocean_uniform.f_0,
-            specular_scale: ocean_uniform.specular_scale,
-            reflection_scale: ocean_uniform.reflection_scale,
-            foam_scale: ocean_uniform.foam_scale,
-            sss_distortion_scale: ocean_uniform.sss_distortion_scale,
-            caustic_scale: ocean_uniform.caustic_scale,
-            caustic_size: ocean_uniform.caustic_size,
-            caustic_speed: ocean_uniform.caustic_speed,
-            caustic_intensity: ocean_uniform.caustic_intensity,
-            caustic_octaves: ocean_uniform.caustic_octaves,
-            caustic_depth: ocean_uniform.caustic_depth,
-            caustic_max_distance: ocean_uniform.caustic_max_distance,
-            micro_normal_strength: ocean_uniform.micro_normal_strength,
-            foam_threshold: ocean_uniform.foam_threshold,
-            foam_speed: ocean_uniform.foam_speed,
-            foam_roughness: ocean_uniform.foam_roughness,
-            daynight_cycle: ocean_uniform.daynight_cycle,
-            caustic_color_tint: ocean_uniform.caustic_color_tint,
-            deep_color: ocean_uniform.deep_color,
-            shallow_color: ocean_uniform.shallow_color,
-            sss_color: ocean_uniform.sss_color,
-            sun_color: ocean_uniform.sun_color,
-            sky_color_day_zenith: ocean_uniform.sky_color_day_zenith,
-            sky_color_day_horizon: ocean_uniform.sky_color_day_horizon,
-            sky_color_night_zenith: ocean_uniform.sky_color_night_zenith,
-            sky_color_night_horizon: ocean_uniform.sky_color_night_horizon,
-            sky_color_sunset_orange: ocean_uniform.sky_color_sunset_orange,
-            sky_color_sunset_pink: ocean_uniform.sky_color_sunset_pink,
-            sky_color_horizon_glow: ocean_uniform.sky_color_horizon_glow,
-            moon_color_lit: ocean_uniform.moon_color_lit,
-            moon_color_dark: ocean_uniform.moon_color_dark,
-            cloud_color_night: ocean_uniform.cloud_color_night,
-            cloud_color_day: ocean_uniform.cloud_color_day,
-            sun_offset_z: ocean_uniform.sun_offset_z,
-            sun_size_inner: ocean_uniform.sun_size_inner,
-            sun_size_outer: ocean_uniform.sun_size_outer,
-            sun_halo_power: ocean_uniform.sun_halo_power,
-            moon_radius: ocean_uniform.moon_radius,
-            moon_dist: ocean_uniform.moon_dist,
-            moon_phase_offset: ocean_uniform.moon_phase_offset,
-            moon_crater_scale: ocean_uniform.moon_crater_scale,
-            moon_halo_power: ocean_uniform.moon_halo_power,
-            star_count: ocean_uniform.star_count,
-            star_threshold: ocean_uniform.star_threshold,
-            star_blink_speed: ocean_uniform.star_blink_speed,
-            star_size: ocean_uniform.star_size,
-            aurora_strength: ocean_uniform.aurora_strength,
-            cloud_speed: ocean_uniform.cloud_speed,
-            cloud_density_low: ocean_uniform.cloud_density_low,
-            cloud_density_high: ocean_uniform.cloud_density_high,
+            mesh_size: u.mesh_size,
+            mesh_subdivisions: u.mesh_subdivisions,
+            fft_size: u.fft_size,
+            fft_subdivisions: u.fft_subdivisions,
+            time_scale: u.time_scale,
+            ocean_seed: u.ocean_seed,
+            chop_scale: u.chop_scale,
+            amplitude_scale: u.amplitude_scale,
+            wind_vector: u.wind_vector,
+            amplitude: u.amplitude,
+            l_small: u.l_small,
+            max_w: u.max_w,
+            fovy: u.fovy,
+            zfar: u.zfar,
+            cam_speed: u.cam_speed,
+            cam_boost: u.cam_boost,
+            cam_sensitivity: u.cam_sensitivity,
+            roughness: u.roughness,
+            f_0: u.f_0,
+            specular_scale: u.specular_scale,
+            reflection_scale: u.reflection_scale,
+            foam_scale: u.foam_scale,
+            sss_distortion_scale: u.sss_distortion_scale,
+            caustic_scale: u.caustic_scale,
+            caustic_size: u.caustic_size,
+            caustic_speed: u.caustic_speed,
+            caustic_intensity: u.caustic_intensity,
+            caustic_octaves: u.caustic_octaves,
+            caustic_depth: u.caustic_depth,
+            caustic_max_distance: u.caustic_max_distance,
+            micro_normal_strength: u.micro_normal_strength,
+            foam_threshold: u.foam_threshold,
+            foam_speed: u.foam_speed,
+            foam_roughness: u.foam_roughness,
+            daynight_cycle: u.daynight_cycle,
+            caustic_color_tint: u.caustic_color_tint,
+            deep_color: u.deep_color,
+            shallow_color: u.shallow_color,
+            sss_color: u.sss_color,
+            sun_color: u.sun_color,
+            sky_color_day_zenith: u.sky_color_day_zenith,
+            sky_color_day_horizon: u.sky_color_day_horizon,
+            sky_color_night_zenith: u.sky_color_night_zenith,
+            sky_color_night_horizon: u.sky_color_night_horizon,
+            sky_color_sunset_orange: u.sky_color_sunset_orange,
+            sky_color_sunset_pink: u.sky_color_sunset_pink,
+            sky_color_horizon_glow: u.sky_color_horizon_glow,
+            moon_color_lit: u.moon_color_lit,
+            moon_color_dark: u.moon_color_dark,
+            cloud_color_night: u.cloud_color_night,
+            cloud_color_day: u.cloud_color_day,
+            sun_offset_z: u.sun_offset_z,
+            sun_size_inner: u.sun_size_inner,
+            sun_size_outer: u.sun_size_outer,
+            sun_halo_power: u.sun_halo_power,
+            moon_radius: u.moon_radius,
+            moon_dist: u.moon_dist,
+            moon_phase_offset: u.moon_phase_offset,
+            moon_crater_scale: u.moon_crater_scale,
+            moon_halo_power: u.moon_halo_power,
+            star_count: u.star_count,
+            star_threshold: u.star_threshold,
+            star_blink_speed: u.star_blink_speed,
+            star_size: u.star_size,
+            aurora_strength: u.aurora_strength,
+            cloud_speed: u.cloud_speed,
+            cloud_density_low: u.cloud_density_low,
+            cloud_density_high: u.cloud_density_high,
             cascade_data: cascade_vec,
+            sunset_scatter_color: u.sunset_scatter_color,
+            sunset_scatter_intensity: u.sunset_scatter_intensity,
+            foam_base_color: u.foam_base_color,
+            sss_min_height: u.sss_min_height,
+            sss_max_height: u.sss_max_height,
+            sss_power: u.sss_power,
+            sss_intensity: u.sss_intensity,
+            detail_fade: u.detail_fade,
+            ambient_scale: u.ambient_scale,
+            blend_strength: u.blend_strength,
+            bloom_scale: u.bloom_scale,
+            reflection_min: u.reflection_min,
+            reflection_max: u.reflection_max,
+            moon_light_dim: u.moon_light_dim,
+            sky_zenith_gradient_exp: u.sky_zenith_gradient_exp,
+            horizon_glow_mult: u.horizon_glow_mult,
+            sunset_orange_weight: u.sunset_orange_weight,
+            sunset_intensity: u.sunset_intensity,
+            sun_halo_intensity: u.sun_halo_intensity,
+            moon_halo_intensity: u.moon_halo_intensity,
+            micro_uv_freq: u.micro_uv_freq,
+            micro_time_freq: u.micro_time_freq,
+            micro_strength_mod: u.micro_strength_mod,
+            foam_crest_width: u.foam_crest_width,
+            caustic_aberration: u.caustic_aberration,
+            caustic_smooth_low: u.caustic_smooth_low,
+            caustic_smooth_high: u.caustic_smooth_high,
+            aurora_brightness: u.aurora_brightness,
+            aurora_y_threshold: u.aurora_y_threshold,
+            water_brightness_mod: u.water_brightness_mod,
+            decay_factor: u.decay_factor,
+            dissipation_factor: u.dissipation_factor,
+            warp_uv_scale: u.warp_uv_scale,
+            warp_strength: u.warp_strength,
+            warp_time_scale: u.warp_time_scale,
+            foam_octaves: u.foam_octaves,
+            foam_power: u.foam_power,
+            hash_scale: u.hash_scale,
+            hash_dot: u.hash_dot,
+            steepness_threshold_low: u.steepness_threshold_low,
+            steepness_threshold_high: u.steepness_threshold_high,
+            y_displacement_weight: u.y_displacement_weight,
+            wave_epsilon: u.wave_epsilon,
         }
     }
 
     pub fn build(self) -> OceanSettingsUniform {
-        // Just make sure people arent weird.
-        // assert!(self.fft_subdivisions.is_power_of_two());
-        assert!(self.fft_subdivisions.is_multiple_of(16));
-        assert!(self.fft_size > 0.0);
-        assert!(self.mesh_size > 0.0);
-        assert!(!self.cascade_data.is_empty());
-
-        let pass_num = self.fft_subdivisions.ilog2();
-        let wave_scale = self.mesh_size / self.fft_size;
-
         let mut cascade_data = [[0.0f32; 4]; MAX_CASCADES];
         let count = self.cascade_data.len().min(MAX_CASCADES);
-
-        for (index, cascade) in self.cascade_data.iter().take(count).enumerate() {
-            cascade_data[index][0] = cascade.fft_size;
-            cascade_data[index][1] = cascade.amplitude;
+        for (i, c) in self.cascade_data.iter().take(count).enumerate() {
+            cascade_data[i][0] = c.fft_size;
+            cascade_data[i][1] = c.amplitude;
         }
 
         OceanSettingsUniform {
@@ -922,15 +1006,11 @@ impl OceanSettingsBuilder {
             moon_phase_offset: self.moon_phase_offset,
             _pad_moon: 0.0,
             mesh_size: self.mesh_size,
-            mesh_subdivisions: self.mesh_subdivisions,
             fft_size: self.fft_size,
-            fft_subdivisions: self.fft_subdivisions,
-            pass_num,
             time_scale: self.time_scale,
-            ocean_seed: self.ocean_seed,
             chop_scale: self.chop_scale,
             amplitude_scale: self.amplitude_scale,
-            wave_scale,
+            wave_scale: self.mesh_size / self.fft_size,
             amplitude: self.amplitude,
             l_small: self.l_small,
             max_w: self.max_w,
@@ -949,7 +1029,6 @@ impl OceanSettingsBuilder {
             caustic_size: self.caustic_size,
             caustic_speed: self.caustic_speed,
             caustic_intensity: self.caustic_intensity,
-            caustic_octaves: self.caustic_octaves,
             caustic_depth: self.caustic_depth,
             caustic_max_distance: self.caustic_max_distance,
             micro_normal_strength: self.micro_normal_strength,
@@ -971,13 +1050,61 @@ impl OceanSettingsBuilder {
             cloud_speed: self.cloud_speed,
             cloud_density_low: self.cloud_density_low,
             cloud_density_high: self.cloud_density_high,
+            mesh_subdivisions: self.mesh_subdivisions,
+            fft_subdivisions: self.fft_subdivisions,
+            pass_num: self.fft_subdivisions.ilog2(),
+            ocean_seed: self.ocean_seed,
+            caustic_octaves: self.caustic_octaves,
             star_size: self.star_size,
             aurora_strength: self.aurora_strength,
             pad_b: [0; 4],
-            _pad_end: [0; 4],
             cascade_data,
             cascade_count: count as u32,
             _pad_cascade: [0; 3],
+            sunset_scatter_color: self.sunset_scatter_color,
+            sunset_scatter_intensity: self.sunset_scatter_intensity,
+            foam_base_color: self.foam_base_color,
+            sss_min_height: self.sss_min_height,
+            sss_max_height: self.sss_max_height,
+            sss_power: self.sss_power,
+            sss_intensity: self.sss_intensity,
+            detail_fade: self.detail_fade,
+            ambient_scale: self.ambient_scale,
+            blend_strength: self.blend_strength,
+            bloom_scale: self.bloom_scale,
+            reflection_min: self.reflection_min,
+            reflection_max: self.reflection_max,
+            moon_light_dim: self.moon_light_dim,
+            sky_zenith_gradient_exp: self.sky_zenith_gradient_exp,
+            horizon_glow_mult: self.horizon_glow_mult,
+            sunset_orange_weight: self.sunset_orange_weight,
+            sunset_intensity: self.sunset_intensity,
+            sun_halo_intensity: self.sun_halo_intensity,
+            moon_halo_intensity: self.moon_halo_intensity,
+            micro_uv_freq: self.micro_uv_freq,
+            micro_time_freq: self.micro_time_freq,
+            micro_strength_mod: self.micro_strength_mod,
+            foam_crest_width: self.foam_crest_width,
+            caustic_aberration: self.caustic_aberration,
+            caustic_smooth_low: self.caustic_smooth_low,
+            caustic_smooth_high: self.caustic_smooth_high,
+            aurora_brightness: self.aurora_brightness,
+            aurora_y_threshold: self.aurora_y_threshold,
+            water_brightness_mod: self.water_brightness_mod,
+            decay_factor: self.decay_factor,
+            dissipation_factor: self.dissipation_factor,
+            warp_uv_scale: self.warp_uv_scale,
+            warp_strength: self.warp_strength,
+            warp_time_scale: self.warp_time_scale,
+            foam_octaves: self.foam_octaves,
+            foam_power: self.foam_power,
+            hash_scale: self.hash_scale,
+            hash_dot: self.hash_dot,
+            steepness_threshold_low: self.steepness_threshold_low,
+            steepness_threshold_high: self.steepness_threshold_high,
+            y_displacement_weight: self.y_displacement_weight,
+            wave_epsilon: self.wave_epsilon,
+            _pad_final: [0.0; 5],
         }
     }
 }
