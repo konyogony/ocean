@@ -3,13 +3,13 @@ const pi: f32 = 3.14159;
 const SSS_MIN_HEIGHT: f32 = -0.5;
 const SSS_MAX_HEIGHT: f32 = 1.5;
 const SSS_POWER: f32 = 8.0;
-const SSS_INTENSITY: f32 = 2.0;
+const SSS_INTENSITY: f32 = 1.0;
 const DETAIL_FADE: f32 = 800.0;
-const AMBIENT_SCALE: f32 = 0.25;
+const AMBIENT_SCALE: f32 = 0.08;
 const BLEND_STRENGTH: f32 = 0.4;
-const BLOOM_SCALE: f32 = 0.5;
-const REFLECTION_MIN: f32 = 0.3;
-const REFLECTION_MAX: f32 = 0.8;
+const BLOOM_SCALE: f32 = 0.3;
+const REFLECTION_MIN: f32 = 0.2;
+const REFLECTION_MAX: f32 = 0.9;
 
 struct OceanSettingsUniform {
     deep_color: vec4<f32>,
@@ -204,8 +204,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let angle = (ocean_settings.daynight_cycle - 0.5) * 6.28318;
     let sun_dir = normalize(vec3(sin(angle), cos(angle), ocean_settings.sun_offset_z));
     let sun_up = sun_dir.y;
-    let intensity = smoothstep(-0.2, 0.5, sun_up);
-    let night_fade = clamp(-sun_up * 3.0, 0.0, 1.0);
+    let intensity = smoothstep(-0.3, 0.3, sun_up);
+    let night_fade = smoothstep(0.3, -0.3, sun_up);
     let moon_base = -sun_dir;
     let moon_dir = normalize(moon_base + ocean_settings.moon_phase_offset);
     let sun_light_color = ocean_settings.sun_color.rgb * intensity;
@@ -217,8 +217,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let horizon = mix(ocean_settings.sky_color_night_horizon.rgb, ocean_settings.sky_color_day_horizon.rgb, intensity);
     let ambient = mix(horizon, zenith, clamp(normal_geometry.y * 0.5 + 0.5, 0.0, 1.0));
 
-    let micro_uv = (in.world_pos.xz * 2.0) + ocean_settings.wind_vector * camera.time * 0.15;
-    let micro_normal = get_noise_normal(micro_uv, 0.5);
+    let micro_uv = (in.world_pos.xz * 0.02) + ocean_settings.wind_vector * camera.time * 0.001;
+    let micro_normal = get_noise_normal(micro_uv, 0.8);
 
     let dist = length(camera.camera_pos - in.world_pos);
     let detail_fade = 1.0 - smoothstep(50.0, DETAIL_FADE, dist);
@@ -231,7 +231,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         micro_normal.z * B
     );
     
-    let normal = normalize(mix(normal_geometry, micro_ws, detail_fade * ocean_settings.micro_normal_strength));
+    let normal = normalize(mix(normal_geometry, micro_ws, detail_fade * ocean_settings.micro_normal_strength * 0.1));
 
     let view_dir = normalize(camera.camera_pos - in.world_pos);
     let half_dir = normalize(light_dir + view_dir);
@@ -244,13 +244,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let trans_light_dir = normalize(light_dir + normal * ocean_settings.sss_distortion_scale) * smoothstep(0.5, 1.2, jacobian);
     let trans_dot = max(dot(view_dir, -trans_light_dir), 0.0);
-
-    // basically also from the skybox shader
-    // let sunset_timing = exp(-pow(sun_up * 3.5, 2.0)) * smoothstep(-0.3, 0.3, sun_up);
-    // let reflection_sun_angle = max(dot(reflect_dir, vec3(sun_dir.x, 0.0, sun_dir.z)), 0.0);
-    // let reflection_sunset = pow(reflection_sun_angle, 2.0) * sunset_timing;
-    // var sky_reflection = mix(horizon, zenith, pow(max(reflect_dir.y, 0.0), 0.6));
-    // sky_reflection += ocean_settings.sky_color_sunset_orange.rgb * reflection_sunset * 2.0;
 
     let p_back = pow(trans_dot, SSS_POWER);
     let sss_thickness_mask = 1.0 - smoothstep(SSS_MIN_HEIGHT, SSS_MAX_HEIGHT, in.height);
@@ -305,6 +298,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let foam_color = vec3<f32>(0.95, 0.98, 0.92);
     color = mix(color, foam_color, clamp(foam_factor, 0.0, 1.0));
 
+    color *= 0.8;
+
     color = aces_tone_map(color);
     color = pow(color, vec3<f32>(1.0/2.2));
 
@@ -322,14 +317,14 @@ fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
     let moon_base = -sun_dir;
     let moon_dir = normalize(moon_base + ocean_settings.moon_phase_offset); 
     
-    let intensity = smoothstep(-0.2, 0.5, sun_up);
-    let night_fade = clamp(-sun_up * 3.0, 0.0, 1.0);
+    let intensity = smoothstep(-0.3, 0.3, sun_up);
+    let night_fade = smoothstep(0.3, -0.3, sun_up);
 
     let zenith = mix(ocean_settings.sky_color_night_zenith.rgb, ocean_settings.sky_color_day_zenith.rgb, intensity);
     let horizon = mix(ocean_settings.sky_color_night_horizon.rgb, ocean_settings.sky_color_day_horizon.rgb, intensity);
     var col = mix(horizon, zenith, pow(max(dir.y, 0.0), BLEND_STRENGTH));
 
-    let sunset_timing = exp(-pow(sun_up * 4.0, 2.0)) * smoothstep(-0.2, 0.4, sun_up);
+    let sunset_timing = exp(-pow((sun_up - 0.0) * 8.0, 2.0)) * smoothstep(-0.3, -0.1, sun_up) * smoothstep(0.3, 0.1, sun_up);
     let sunset_angle = max(dot(dir, normalize(vec3(sun_dir.x, 0.0, sun_dir.z))), 0.0);
     let sunset_vertical = smoothstep(-0.1, 0.4, dir.y) * smoothstep(0.7, 0.2, dir.y);
     
@@ -339,7 +334,7 @@ fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
 
     let sun_dist = dot(dir, sun_dir);
     let sun_disk = smoothstep(ocean_settings.sun_size_inner, ocean_settings.sun_size_outer, sun_dist);
-    let sun_halo = pow(max(sun_dist, 0.0), ocean_settings.sun_halo_power) * 0.15;
+    let sun_halo = pow(max(sun_dist, 0.0), ocean_settings.sun_halo_power) * 0.02;
     let halo_color = mix(vec3(1.0, 0.85, 0.6), ocean_settings.sun_color.rgb, BLOOM_SCALE);
     col += sun_disk * mix(ocean_settings.sun_color.rgb, ocean_settings.sky_color_sunset_orange.rgb, sunset_timing) * intensity;
     col += sun_halo * halo_color * intensity;
@@ -348,7 +343,7 @@ fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
     
     if (dot(dir, moon_dir) > 0.0) {
         let center = moon_dir * ocean_settings.moon_dist;
-        let radius = ocean_settings.moon_dist * ocean_settings.moon_radius; 
+        let radius = ocean_settings.moon_radius;
         
         let oc = -center;
         let b = dot(oc, dir);
@@ -360,8 +355,10 @@ fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
             let t = -b - sqrt(h);
             let hit_pos = dir * t;
             let normal = normalize(hit_pos - center);
-            let uv_moon = normal.xy * 2.0; 
-            let craters = 1.0 - moon_fbm(uv_moon * ocean_settings.moon_crater_scale) * 0.6; 
+            let phi = atan2(normal.z, normal.x);
+            let theta = asin(clamp(normal.y, -1.0, 1.0));
+            let uv_moon = vec2<f32>(phi / 6.28318, theta / 3.14159) * ocean_settings.moon_crater_scale;
+            let craters = 1.0 - moon_fbm(uv_moon) * 0.6;
             let diffuse = max(dot(normal, sun_dir), 0.0);
             let terminator = smoothstep(-0.15, 0.15, diffuse);
             let surface_col = mix(ocean_settings.moon_color_dark.rgb, ocean_settings.moon_color_lit.rgb * craters * 0.8, terminator);
@@ -487,7 +484,7 @@ fn fbm(p: vec2<f32>) -> f32 {
 }
 
 fn get_noise_normal(pos: vec2<f32>, strength: f32) -> vec3<f32> {
-    let eps = 0.1;
+    let eps = 0.01;
     let n = fbm(pos);
     let dx = fbm(pos + vec2(eps, 0.0)) - n;
     let dz = fbm(pos + vec2(0.0, eps)) - n;

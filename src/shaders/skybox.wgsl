@@ -166,7 +166,7 @@ fn cloud_density(p: vec2<f32>, t: f32) -> f32 {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let dir = normalize(in.tex_coords);
-    let angle = (ocean_settings.daynight_cycle - 0.25) * 6.28318;
+    let angle = (ocean_settings.daynight_cycle - 0.5) * 6.28318;
     
     let sun_dir = normalize(vec3(sin(angle), cos(angle), ocean_settings.sun_offset_z));
     let sun_up = sun_dir.y;
@@ -174,14 +174,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let moon_base = -sun_dir;
     let moon_dir = normalize(moon_base + ocean_settings.moon_phase_offset); 
     
-    let intensity = smoothstep(-0.2, 0.5, sun_up);
-    let night_fade = clamp(-sun_up * 3.0, 0.0, 1.0);
+    let intensity = smoothstep(-0.3, 0.3, sun_up);
+    let night_fade = smoothstep(0.3, -0.3, sun_up);
 
     let zenith = mix(ocean_settings.sky_color_night_zenith.rgb, ocean_settings.sky_color_day_zenith.rgb, intensity);
     let horizon = mix(ocean_settings.sky_color_night_horizon.rgb, ocean_settings.sky_color_day_horizon.rgb, intensity);
     var col = mix(horizon, zenith, pow(max(dir.y, 0.0), 0.7));
 
-    let sunset_timing = exp(-pow(sun_up * 4.0, 2.0)) * smoothstep(-0.2, 0.4, sun_up);
+    let sunset_timing = exp(-pow((sun_up - 0.0) * 8.0, 2.0)) * smoothstep(-0.3, -0.1, sun_up) * smoothstep(0.3, 0.1, sun_up);
     let sunset_angle = max(dot(dir, normalize(vec3(sun_dir.x, 0.0, sun_dir.z))), 0.0);
     let sunset_vertical = smoothstep(-0.1, 0.4, dir.y) * smoothstep(0.7, 0.2, dir.y);
     
@@ -191,14 +191,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let sun_dist = dot(dir, sun_dir);
     let sun_disk = smoothstep(ocean_settings.sun_size_inner, ocean_settings.sun_size_outer, sun_dist);
-    let sun_halo = pow(max(sun_dist, 0.0), ocean_settings.sun_halo_power) * 0.5;
+    let sun_halo = pow(max(sun_dist, 0.0), ocean_settings.sun_halo_power) * 0.05;
     col += (sun_disk + sun_halo) * mix(ocean_settings.sun_color.rgb, ocean_settings.sky_color_sunset_orange.rgb, sunset_timing) * intensity;
 
     var hit_moon = false;
     
     if (dot(dir, moon_dir) > 0.0) {
         let center = moon_dir * ocean_settings.moon_dist;
-        let radius = ocean_settings.moon_dist * ocean_settings.moon_radius; 
+        let radius = ocean_settings.moon_dist;
         
         let oc = -center;
         let b = dot(oc, dir);
@@ -212,8 +212,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let hit_pos = dir * t;
             let normal = normalize(hit_pos - center);
             
-            let uv_moon = normal.xy * 2.0; 
-            let craters = 1.0 - moon_fbm(uv_moon * ocean_settings.moon_crater_scale) * 0.6; 
+            // spherical coordinates YAY
+            let phi = atan2(normal.z, normal.x);
+            let theta = asin(clamp(normal.y, -1.0, 1.0));
+            let uv_moon = vec2<f32>(phi / 6.28318, theta / 3.14159) * ocean_settings.moon_crater_scale;
+            
+            let craters = 1.0 - moon_fbm(uv_moon) * 0.6;
             
             let diffuse = max(dot(normal, sun_dir), 0.0);
             let terminator = smoothstep(-0.15, 0.15, diffuse);
