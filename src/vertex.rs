@@ -1,7 +1,9 @@
 use cgmath::{InnerSpace, Vector2};
+use rand::Rng;
 use rand::{rngs::StdRng, SeedableRng};
 use rand_distr::{Distribution, Normal};
 use std::f32;
+use std::f32::consts::PI;
 use std::mem;
 
 #[repr(C)]
@@ -28,25 +30,14 @@ impl InitialData {
         max_w: f32,
         rng: &mut StdRng,
     ) -> Self {
-        let normal = Normal::new(0.0, 1.0).unwrap();
-
         // Now we have to do this, so that we can center everything around the center.
-        let n_f = if n < subdivisions / 2 {
-            n as f32
-        } else {
-            (n as f32) - (subdivisions as f32)
-        };
+        let n_f = n as f32;
+        let m_f = m as f32;
+        let size_f = subdivisions as f32;
 
-        let m_f = if m < subdivisions / 2 {
-            m as f32
-        } else {
-            (m as f32) - (subdivisions as f32)
-        };
-
-        let k_vec = [
-            (2.0 * f32::consts::PI * n_f) / fft_size,
-            (2.0 * f32::consts::PI * m_f) / fft_size,
-        ];
+        let k_x = (2.0 * PI * (n_f - size_f / 2.0)) / fft_size;
+        let k_y = (2.0 * PI * (m_f - size_f / 2.0)) / fft_size;
+        let k_vec = [k_x, k_y];
 
         if k_vec == [0.0, 0.0] {
             return Self {
@@ -61,17 +52,27 @@ impl InitialData {
         let phk = Self::get_phillips_spectrum_value(k_vec, wind_vector, l_small, amplitude, max_w);
 
         // Random values from the gaussian distribution
-        let xi_r = normal.sample(rng);
-        let xi_i = normal.sample(rng);
+        let u1: f32 = rng.random_range(0.0001..1.0);
+        let u2: f32 = rng.random_range(0.0001..1.0);
 
-        let factor = phk.sqrt() / f32::consts::SQRT_2;
+        let mag = (phk / 2.0).sqrt();
+        let phase1 = (-2.0 * u1.ln()).sqrt() * mag;
+        let angle = 2.0 * PI * u2;
+
+        let xi_r = phase1 * angle.cos();
+        let xi_i = phase1 * angle.sin();
+
+        let freq_domain = [xi_r, xi_i];
+        let freq_domain_conjugate = [xi_r, -xi_i];
 
         let k: Vector2<f32> = k_vec.into();
-        let gk = 9.81 * k.magnitude();
-        let w = gk.sqrt();
+        let k_len = k.magnitude();
+        let w = if k_len > 0.0001 {
+            (9.81 * k_len).sqrt()
+        } else {
+            0.0
+        };
 
-        let freq_domain = [xi_r * factor, xi_i * factor];
-        let freq_domain_conjugate = [freq_domain[0], -freq_domain[1]];
         Self {
             k_vec,
             initial_freq_domain: freq_domain,
@@ -127,7 +128,6 @@ impl InitialData {
         twiddles
     }
 
-    // This will be used later, dont worry
     pub fn get_phillips_spectrum_value(
         k_vec: [f32; 2],
         wind_vector: [f32; 2],
@@ -137,31 +137,32 @@ impl InitialData {
     ) -> f32 {
         let k: Vector2<f32> = k_vec.into();
         let k_len = k.magnitude();
-        if k_len > max_w {
+        if k_len > max_w || k_len < 0.001 {
             return 0.0;
         }
-        let k2 = k.magnitude2();
-        if k2 <= 0.0000001 {
-            return 0.0;
-        }
+
+        let k2 = k_len * k_len;
+        let k4 = k2 * k2;
 
         let k_hat = k.normalize();
-
         let w: Vector2<f32> = wind_vector.into();
+        let w_len = w.magnitude();
         let w_hat = w.normalize();
 
         let align = cgmath::dot(k_hat, w_hat);
-        let align2 = align.abs().powi(2);
+        let align_power = align.abs().powi(3);
+        if align < -0.1 {
+            return align_power * 0.1;
+        }
 
-        let l = w.magnitude2() / 9.81;
+        let l = w_len * w_len / 9.81;
         let l2 = l * l;
-        let k4 = k2 * k2;
-        let exp = f32::exp(-1.0 / (k2 * l2));
 
-        // New thing: l_small, dampening for high f
-        let damp = f32::exp(-k2 * l_small.powi(2));
+        let exp_term = f32::exp(-1.0 / (k2 * l2));
+        let damp = f32::exp(-k2 * l_small * l_small);
+        let small_wave_suppression = 1.0 / (1.0 + k_len * 0.5);
 
-        (align2 * amplitude * exp * damp) / k4
+        (align_power * amplitude * exp_term * damp * small_wave_suppression) / k4
     }
 }
 

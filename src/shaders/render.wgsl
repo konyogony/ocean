@@ -178,12 +178,13 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     let dz_sample = textureSampleLevel(texture_dz, sampler_ocean, uv, 0.0);
 
     let h = h_dx_sample.x * amp;
-    let dx = h_dx_sample.z * amp;
-    let dz = dz_sample.x * amp;
+    let h_enhanced = h + pow(abs(h), 1.3) * sign(h) * 0.15;
+    let dx = h_dx_sample.z;
+    let dz = dz_sample.x;
 
     var displaced_pos = vec3(
         world_xz.x + dx * chop,
-        model.position.y + h,
+        h_enhanced,
         world_xz.y + dz * chop
     );
     
@@ -285,16 +286,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // better foam algo
     let jacobian_mask = 1.0 - clamp(jacobian, 0.0, 1.0);
     let height_mask = smoothstep(-0.2, 0.6, in.height);
-    let foam_uv = in.world_pos.xz * ocean_settings.foam_scale; 
-    let foam_val = textureSample(foam_texture, sampler_foam, foam_uv).r;
+
+    let foam_uv1 = in.world_pos.xz * 0.08 + camera.time * 0.02;
+    let foam_uv2 = in.world_pos.xz * 0.15 - camera.time * 0.015;
+    let foam_uv3 = in.world_pos.xz * 0.25 + camera.time * 0.01;
+
+    let foam_val1 = textureSample(foam_texture, sampler_foam, foam_uv1).r;
+    let foam_val2 = textureSample(foam_texture, sampler_foam, foam_uv2).r;
+    let foam_val3 = textureSample(foam_texture, sampler_foam, foam_uv3).r;
+    let foam_val = (foam_val1 + foam_val2 * 0.5 + foam_val3 * 0.3) / 1.8;
+
     let wave_crest_mask = smoothstep(ocean_settings.foam_threshold, ocean_settings.foam_threshold + ocean_settings.foam_crest_width, jacobian_mask) * height_mask;
-    let foam_factor = smoothstep(0.4, 0.7, foam_val) * wave_crest_mask * ocean_settings.foam_scale;
+    let foam_factor = smoothstep(0.3, 0.8, foam_val) * wave_crest_mask * ocean_settings.foam_scale;
 
     let turbidity = smoothstep(0.1, 0.5, jacobian); // basically compression
     let base_mix = smoothstep(-2.0, 4.0, in.height);
     var water_base = mix(ocean_settings.deep_color.rgb, ocean_settings.shallow_color.rgb, base_mix);
     water_base = mix(water_base, ocean_settings.sss_color.rgb * 0.5, turbidity * 0.5);
-    water_base *= max(intensity, 0.1);
+    water_base *= max(intensity, 0.35);
 
     let reflection_dampener = 1.0 - smoothstep(ocean_settings.reflection_min, ocean_settings.reflection_max, jacobian);
     let rougness_dynamic = mix(ocean_settings.roughness, ocean_settings.foam_roughness, foam_factor);
@@ -304,8 +313,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var color = water_base + sss;
     
+    let view_depth = length(camera.camera_pos - in.world_pos);
+    let caustic_depth_mask = smoothstep(2.0, 8.0, view_depth) * smoothstep(ocean_settings.caustic_max_distance, ocean_settings.caustic_max_distance * 0.5, view_depth);
     let depth_fade = smoothstep(-2.0, 2.5, in.height);
-    let view_angle_fade = pow(max(view_dir.y, 0.0), 1.2);
+    let view_angle = dot(view_dir, vec3(0.0, 1.0, 0.0));
+    let caustic_angle_mask = smoothstep(-0.3, -0.7, view_angle);
     let parallax_offset = -view_dir.xz * ocean_settings.caustic_depth / max(view_dir.y, 0.1);
     let caustic_uv = (in.world_pos.xz * ocean_settings.caustic_scale) + parallax_offset;
     let caustic_pattern = get_caustics_procedural(caustic_uv, camera.time);
@@ -315,13 +327,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let dist_fade = 1.0 - smoothstep(50.0, ocean_settings.caustic_max_distance, dist) * cam_height_fade;
     let choppiness_mask = smoothstep(0.7, 1.0, jacobian);
     let down_fade = smoothstep(0.8, 0.5, view_dir.y);  // Fades out grain when looking down
-    let caustic_strength = sun_facing * foam_mask * dist_fade * depth_fade * view_angle_fade * choppiness_mask * down_fade * 2.0;
+    let caustic_strength = sun_facing * foam_mask * dist_fade * depth_fade * caustic_angle_mask * caustic_depth_mask * choppiness_mask * down_fade * 2.0;
     let caustic_color = caustic_pattern * ocean_settings.caustic_color_tint.rgb * caustic_strength * intensity * 2.0;
 
     color += caustic_color * ocean_settings.sss_color.rgb * 0.6;
     
     let sky_reflection = get_sky_color(reflect_dir) * ocean_settings.reflection_scale;
-    color = mix(color, sky_reflection, clamp(fresnel_sky, 0.0, 1.0));
+    let fresnel_clamped = clamp(fresnel_sky * 0.6, 0.0, 0.5);
+    color = mix(color, sky_reflection, fresnel_clamped);
     color += ambient * ocean_settings.ambient_scale;
     color += specular;
     
