@@ -199,9 +199,8 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     let exponent_neg = vec2<f32>(cos_wt, -sin_wt);
 
     let h_tilda: vec2<f32> = complex_multiplication(h_0, exponent) + complex_multiplication(h_0_mirrored_conjugate, exponent_neg);
-    // No shift needed, since we are dealing w a texture now
-    // let shift = select(1.0, -1.0, ((x + y) % 2u) == 1u);
-    // let h_tilda_shifted = h_tilda * shift;
+    let shift = select(1.0, -1.0, ((x + y) % 2u) == 1u);
+    let h_tilda_shifted = h_tilda * shift;
 
     let k = initial_data[index].k_vec;
     let k_len = length(k);
@@ -211,11 +210,16 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     if (k_len > ocean_settings.wave_epsilon) {
         let k_norm = k / k_len;
         // i * complex is: (-imag, real)
-        h_dx = vec2<f32>(-h_tilda.y * k_norm.x, h_tilda.x * k_norm.x);
-        h_dz = vec2<f32>(-h_tilda.y * k_norm.y, h_tilda.x * k_norm.y);
+        h_dx = vec2<f32>(-h_tilda_shifted.y * k_norm.x, h_tilda_shifted.x * k_norm.x);
+        h_dz = vec2<f32>(-h_tilda_shifted.y * k_norm.y, h_tilda_shifted.x * k_norm.y);
     }
 
-    textureStore(dst_h_dx, vec2<i32>(id.xy), vec4<f32>(h_tilda, h_dx));
+    // bit reverse :waaaa:
+    let log2n = ocean_settings.pass_num;
+    let rev_x = bit_reverse(x, log2n);
+    let rev_y = bit_reverse(y, log2n);
+
+    textureStore(dst_h_dx, vec2<i32>(id.xy), vec4<f32>(h_tilda_shifted, h_dx));
     textureStore(dst_dz, vec2<i32>(id.xy), vec4<f32>(h_dz, 0.0, 0.0));
 }
 
@@ -292,4 +296,14 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
 
 fn complex_multiplication(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+fn bit_reverse(val: u32, bits: u32) -> u32 {
+    var v = val;
+    var r = 0u;
+    for (var i = 0u; i < bits; i++) {
+        r = (r << 1u) | (v & 1u);
+        v = v >> 1u;
+    }
+    return r;
 }

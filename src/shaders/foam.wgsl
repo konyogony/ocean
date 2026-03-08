@@ -199,7 +199,7 @@ fn compute_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let steepness_factor = smoothstep(ocean_settings.steepness_threshold_low, ocean_settings.steepness_threshold_high, x_displacement + y_displacement * ocean_settings.y_displacement_weight);
 
     let noise_foam = get_foam(uv_float * ocean_settings.foam_scale, camera.time);
-    let generated_foam_val = mix(noise_foam, 1.0, steepness_factor * ocean_settings.foam_threshold);
+    let generated_foam_val = steepness_factor * noise_foam;
 
     let prev_foam_val = textureLoad(foam_texture_read, global_id.xy).r;
     let new_foam_val = max(generated_foam_val, prev_foam_val * ocean_settings.decay_factor);

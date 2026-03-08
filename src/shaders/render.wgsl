@@ -297,13 +297,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let foam_val = (foam_val1 + foam_val2 * 0.5 + foam_val3 * 0.3) / 1.8;
 
     let wave_crest_mask = smoothstep(ocean_settings.foam_threshold, ocean_settings.foam_threshold + ocean_settings.foam_crest_width, jacobian_mask) * height_mask;
-    let foam_factor = smoothstep(0.3, 0.8, foam_val) * wave_crest_mask * ocean_settings.foam_scale;
+    let foam_factor = clamp(smoothstep(0.3, 0.8, foam_val) * wave_crest_mask * ocean_settings.foam_scale, 0.0, 0.7);
 
-    let turbidity = smoothstep(0.1, 0.5, jacobian); // basically compression
+    let turbidity = smoothstep(0.1, 0.5, jacobian);
     let base_mix = smoothstep(-2.0, 4.0, in.height);
     var water_base = mix(ocean_settings.deep_color.rgb, ocean_settings.shallow_color.rgb, base_mix);
     water_base = mix(water_base, ocean_settings.sss_color.rgb * 0.5, turbidity * 0.5);
-    water_base *= max(intensity, 0.35);
+    water_base *= intensity;
 
     let reflection_dampener = 1.0 - smoothstep(ocean_settings.reflection_min, ocean_settings.reflection_max, jacobian);
     let rougness_dynamic = mix(ocean_settings.roughness, ocean_settings.foam_roughness, foam_factor);
@@ -333,12 +333,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     color += caustic_color * ocean_settings.sss_color.rgb * 0.6;
     
     let sky_reflection = get_sky_color(reflect_dir) * ocean_settings.reflection_scale;
-    let fresnel_clamped = clamp(fresnel_sky * 0.6, 0.0, 0.5);
-    color = mix(color, sky_reflection, fresnel_clamped);
-    color += ambient * ocean_settings.ambient_scale;
+    let view_angle_factor = pow(max(1.0 - abs(view_dir.y), 0.0), 2.0);
+    let fresnel_limited = fresnel_sky * 0.4 * view_angle_factor;
+    color = mix(color, sky_reflection, clamp(fresnel_limited, 0.0, 0.4));
+    color += ambient * ocean_settings.ambient_scale * (0.5 + 0.5 * n_dot_light);
     color += specular;
     
-    color = mix(color, ocean_settings.foam_base_color, clamp(foam_factor, 0.0, 1.0));
+    color = mix(color, ocean_settings.foam_base_color, clamp(foam_factor, 0.0, 0.7));
 
     color *= ocean_settings.water_brightness_mod;
 

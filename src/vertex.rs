@@ -51,19 +51,15 @@ impl InitialData {
 
         let phk = Self::get_phillips_spectrum_value(k_vec, wind_vector, l_small, amplitude, max_w);
 
-        // Random values from the gaussian distribution
-        let u1: f32 = rng.random_range(0.0001..1.0);
-        let u2: f32 = rng.random_range(0.0001..1.0);
+        let xi_r: f32 = rng.random::<f32>() * 2.0 - 1.0;
+        let xi_i: f32 = rng.random::<f32>() * 2.0 - 1.0;
 
-        let mag = (phk / 2.0).sqrt();
-        let phase1 = (-2.0 * u1.ln()).sqrt() * mag;
-        let angle = 2.0 * PI * u2;
+        let sqrt_ph = (phk / 2.0).sqrt();
+        let real = sqrt_ph * xi_r;
+        let imag = sqrt_ph * xi_i;
 
-        let xi_r = phase1 * angle.cos();
-        let xi_i = phase1 * angle.sin();
-
-        let freq_domain = [xi_r, xi_i];
-        let freq_domain_conjugate = [xi_r, -xi_i];
+        let freq_domain = [real, imag];
+        let freq_domain_conjugate = [real, -imag];
 
         let k: Vector2<f32> = k_vec.into();
         let k_len = k.magnitude();
@@ -124,7 +120,6 @@ impl InitialData {
                 twiddles.push([angle.cos(), angle.sin()])
             }
         }
-
         twiddles
     }
 
@@ -150,19 +145,21 @@ impl InitialData {
         let w_hat = w.normalize();
 
         let align = cgmath::dot(k_hat, w_hat);
-        let align_power = align.abs().powi(3);
-        if align < -0.1 {
-            return align_power * 0.1;
-        }
+        // not killing them.
+        let align2 = if align > 0.0 {
+            align.powi(2)
+        } else {
+            align.powi(2) * 0.07
+        };
 
         let l = w_len * w_len / 9.81;
         let l2 = l * l;
 
         let exp_term = f32::exp(-1.0 / (k2 * l2));
         let damp = f32::exp(-k2 * l_small * l_small);
-        let small_wave_suppression = 1.0 / (1.0 + k_len * 0.5);
+        //    let small_wave_suppression = 1.0 / (1.0 + k_len * 0.5);
 
-        (align_power * amplitude * exp_term * damp * small_wave_suppression) / k4
+        (align2 * amplitude * exp_term * damp) / (k4 + 0.001)
     }
 }
 
