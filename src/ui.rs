@@ -180,18 +180,6 @@ impl State {
                                 self.settings_changed, self.preset_modified
                             );
                             settings_slider_ui!(
-                                ui, "FFT Size",
-                                &mut self.draft_settings.fft_size,
-                                256.0..=16384.0, defaults.fft_size,
-                                self.settings_changed, self.preset_modified
-                            );
-                            settings_slider_ui!(
-                                ui, "Amplitude",
-                                &mut self.draft_settings.amplitude,
-                                0.001..=20.0, defaults.amplitude,
-                                self.settings_changed, self.preset_modified
-                            );
-                            settings_slider_ui!(
                                 ui, "Amplitude Scale",
                                 &mut self.draft_settings.amplitude_scale,
                                 0.0..=20.0, defaults.amplitude_scale,
@@ -1070,15 +1058,18 @@ impl State {
                         .add_enabled(self.settings_changed, egui::Button::new("Apply Changes"))
                         .clicked()
                     {
-                        let old_sub = self.ocean_settings_uniform.fft_subdivisions;
-                        let old_cascade_count = self.ocean_settings_uniform.cascade_count;
-                        let old_cascade_data = self.ocean_settings_uniform.cascade_data;
+                        let old_settings = self.ocean_settings_uniform;
                         self.ocean_settings_uniform = self.draft_settings;
 
-                        let has_cascades_changed = self.ocean_settings_uniform.cascade_count != old_cascade_count || self.ocean_settings_uniform.cascade_data != old_cascade_data;
-                        let has_sub_changed = self.ocean_settings_uniform.fft_subdivisions != old_sub;
+                        let needs_reinit = 
+                            self.ocean_settings_uniform.fft_subdivisions != old_settings.fft_subdivisions ||
+                            self.ocean_settings_uniform.cascade_count != old_settings.cascade_count ||
+                            self.ocean_settings_uniform.wind_vector != old_settings.wind_vector ||
+                            self.ocean_settings_uniform.ocean_seed != old_settings.ocean_seed ||
+                            self.ocean_settings_uniform.l_small != old_settings.l_small ||
+                            self.ocean_settings_uniform.cascade_data != old_settings.cascade_data;
 
-                        if has_cascades_changed || has_sub_changed {
+                        if needs_reinit {
                             self.reinit_fft_resources();
                         }
 
@@ -1166,9 +1157,7 @@ impl State {
             Ocean:\n\
             Mesh Size: {size:.0}m²\n\
             Mesh Subdivisions: {sub}\n\
-            FFT Size: {fft_size}\n\
             FFT Subdivisions: {fft_sub}\n\
-            Amplitude: {amp}\n\
             l_small: {l_small}\n\
             Wind Vector: {wind}\n\
             Max Angular Velocity: {max_w}\n\
@@ -1203,10 +1192,8 @@ impl State {
             os_name = self.os_name,
             kernel = self.kernel_version,
             tris = tri_count,
-            amp = self.ocean_settings_uniform.amplitude,
             l_small = self.ocean_settings_uniform.l_small,
             wind = wind,
-            fft_size = self.ocean_settings_uniform.fft_size,
             fft_sub = self.ocean_settings_uniform.fft_subdivisions,
             max_w = self.ocean_settings_uniform.max_w,
             cam_speed = self.ocean_settings_uniform.cam_speed,

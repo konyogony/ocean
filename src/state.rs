@@ -44,6 +44,8 @@ pub struct CascadeResources {
     pub output_is_ping: bool,
     pub combined_bind_group_ping: wgpu::BindGroup,
     pub combined_bind_group_accumulate: wgpu::BindGroup,
+    pub combined_bind_group_pong: wgpu::BindGroup,
+    pub combined_bind_group_pong_accumulate: wgpu::BindGroup,
 }
 
 pub struct State {
@@ -61,6 +63,7 @@ pub struct State {
     pub camera_uniform: CameraUniform,
     pub camera_buffer: wgpu::Buffer,
     pub camera_bind_group: wgpu::BindGroup,
+    pub camera_bind_group_layout: wgpu::BindGroupLayout,
     pub camera_controller: CameraController,
 
     pub text_brush: wgpu_text::TextBrush,
@@ -127,6 +130,7 @@ pub struct State {
     pub ocean_settings_uniform: OceanSettingsUniform,
     pub ocean_settings_buffer: wgpu::Buffer,
     pub ocean_settings_bind_group: wgpu::BindGroup,
+    pub ocean_settings_bind_group_layout: wgpu::BindGroupLayout,
 
     pub egui_state: egui_winit::State,
     pub egui_renderer: egui_wgpu::Renderer,
@@ -272,7 +276,7 @@ impl State {
                     },
                     count: None,
                 }],
-                label: Some("camera_bind_group_layour"),
+                label: Some("camera_bind_group_layout"),
             });
 
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -849,6 +853,99 @@ impl State {
                     label: Some(&format!("combined_bind_group_accumulate_{cascade_index}")),
                 });
 
+            let combined_bind_group_pong = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &combined_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture_pong_h_dx.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&texture_pong_dz.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(
+                            &combined_texture_ping_h_dx.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(
+                            &combined_texture_ping_dz.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(
+                            &combined_texture_pong_h_dx.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(
+                            &combined_texture_pong_dz.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::Sampler(
+                            &combined_texture_ping_h_dx.sampler,
+                        ),
+                    },
+                ],
+                label: Some(&format!("combined_bind_group_pong_{cascade_index}")),
+            });
+
+            let combined_bind_group_pong_accumulate =
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &combined_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&texture_pong_h_dx.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&texture_pong_dz.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(
+                                &combined_texture_pong_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(
+                                &combined_texture_pong_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(
+                                &combined_texture_ping_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::TextureView(
+                                &combined_texture_ping_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 6,
+                            resource: wgpu::BindingResource::Sampler(
+                                &combined_texture_ping_h_dx.sampler,
+                            ),
+                        },
+                    ],
+                    label: Some(&format!(
+                        "combined_bind_group_pong_accumulate_{cascade_index}"
+                    )),
+                });
+
             let cascade = CascadeResources {
                 config_buffer,
                 size: ocean_settings_uniform.cascade_data[cascade_index][0],
@@ -867,6 +964,8 @@ impl State {
                 initial_data_buffer,
                 combined_bind_group_ping,
                 combined_bind_group_accumulate,
+                combined_bind_group_pong,
+                combined_bind_group_pong_accumulate,
             };
 
             cascades.push(cascade);
@@ -1171,6 +1270,11 @@ impl State {
         let gpu_load = gpu_info.load_pct() as f32;
         let gpu_temp = gpu_info.temperature() as f32 / 1000.0;
 
+        const _: () = assert!(
+            std::mem::size_of::<OceanSettingsUniform>() == 880,
+            "OceanSettingsUniform size mismatch! Update _pad_final."
+        );
+
         Ok(Self {
             window,
             device,
@@ -1237,6 +1341,8 @@ impl State {
             ocean_settings_uniform,
             ocean_settings_buffer,
             ocean_settings_bind_group,
+            ocean_settings_bind_group_layout,
+            camera_bind_group_layout,
             egui_state,
             egui_renderer,
             show_setting_ui: false,

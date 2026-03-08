@@ -76,12 +76,10 @@ impl ApplicationHandler<State> for App {
                 state.update();
                 match state.render() {
                     Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        let size = state.window.inner_size();
-                        state.resize(size.width, size.height);
-                    }
                     Err(e) => {
                         log::error!("Unable to render {e}");
+                        let size = state.window.inner_size();
+                        state.resize(size.width, size.height);
                     }
                 }
             }

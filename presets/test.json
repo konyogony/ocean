@@ -4,15 +4,12 @@
   "description": "Testing profile",
   "created_at": 1709816094,
   "last_modified_at": 1772957800,
-  "fft_size": 1000.0,
   "fft_subdivisions": 256,
   "time_scale": 1.2,
   "ocean_seed": 12345,
   "chop_scale": 1.5,
   "amplitude_scale": 2.0,
-  "wave_scale": 1.0,
   "wind_vector": [20.0, 0.0],
-  "amplitude": 2.0,
   "l_small": 0.05,
   "max_w": 15.0,
   "fovy": 70.0,
@@ -74,19 +71,19 @@
   "cascade_data": [
     {
       "fft_size": 1000.0,
-      "amplitude": 1.5
+      "amplitude": 0.375
     },
     {
       "fft_size": 250.0,
-      "amplitude": 1.0
+      "amplitude": 0.25
     },
     {
       "fft_size": 62.5,
-      "amplitude": 0.6
+      "amplitude": 0.15
     },
     {
       "fft_size": 15.6,
-      "amplitude": 0.3
+      "amplitude": 0.075
     }
   ],
   "sunset_scatter_color": [1.05, 0.88, 0.72],

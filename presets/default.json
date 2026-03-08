@@ -4,15 +4,12 @@
   "description": "Realistic calm ocean with proper wave cascades",
   "created_at": 1709816094,
   "last_modified_at": 1772957800,
-  "fft_size": 1000.0,
   "fft_subdivisions": 256,
   "time_scale": 1.5,
   "ocean_seed": 288397046,
   "chop_scale": 2.2,
   "amplitude_scale": 1.1,
-  "wave_scale": 1.0,
   "wind_vector": [10.0, -8.0],
-  "amplitude": 1.6,
   "l_small": 0.08,
   "max_w": 12.0,
   "fovy": 60.0,
@@ -74,19 +71,19 @@
   "cascade_data": [
     {
       "fft_size": 1000.0,
-      "amplitude": 1.2
+      "amplitude": 0.3
     },
     {
       "fft_size": 250.0,
-      "amplitude": 1.0
+      "amplitude": 0.25
     },
     {
       "fft_size": 62.5,
-      "amplitude": 0.8
+      "amplitude": 0.2
     },
     {
       "fft_size": 15.6,
-      "amplitude": 0.6
+      "amplitude": 0.15
     }
   ],
   "sunset_scatter_color": [1.05, 0.88, 0.72],

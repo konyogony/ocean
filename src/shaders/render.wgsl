@@ -23,12 +23,9 @@ struct OceanSettingsUniform {
     moon_phase_offset: vec3<f32>,
     _pad_moon: f32,
     mesh_size: f32,
-    fft_size: f32,
     time_scale: f32,
     chop_scale: f32,
     amplitude_scale: f32,
-    wave_scale: f32,
-    amplitude: f32,
     l_small: f32,
     max_w: f32,
     fovy: f32,
@@ -123,9 +120,7 @@ struct OceanSettingsUniform {
     steepness_threshold_high: f32,
     y_displacement_weight: f32,
     wave_epsilon: f32,
-    _pad_final_0: f32,
-    _pad_final_1: vec4<f32>,
-    _pad_final_2: vec4<f32>,
+    _pad_final: array<vec4<f32>, 4>,
 };
 
 struct CameraUniform {
@@ -170,14 +165,16 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
     let world_xz = model.position.xz;
-    let uv = world_xz / ocean_settings.fft_size; 
-    let amp = ocean_settings.amplitude_scale;
+    // we gonna js take first one..
+    let reference_size = ocean_settings.cascade_data[0].x;
+    let uv = world_xz / reference_size; 
+    let amp_scale = ocean_settings.amplitude_scale;
     let chop = ocean_settings.chop_scale;
     
     let h_dx_sample = textureSampleLevel(texture_h_dx, sampler_ocean, uv, 0.0);
     let dz_sample = textureSampleLevel(texture_dz, sampler_ocean, uv, 0.0);
 
-    let h = h_dx_sample.x * amp;
+    let h = h_dx_sample.x * amp_scale;
     let h_enhanced = h + pow(abs(h), 1.3) * sign(h) * 0.15;
     let dx = h_dx_sample.z;
     let dz = dz_sample.x;
@@ -205,8 +202,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.tex_coords;
     let amp = ocean_settings.amplitude_scale;
     let chop = ocean_settings.chop_scale;
-    let delta_uv = 1.0 / f32(ocean_settings.fft_subdivisions);
-    let world_step = delta_uv * ocean_settings.fft_size;
+    let reference_size = ocean_settings.cascade_data[0].x;
+    let subdivisions = f32(ocean_settings.fft_subdivisions);
+    let delta_uv = 1.0 / subdivisions;
+    let world_step = reference_size / subdivisions;
 
     let sample_r = textureSampleLevel(texture_h_dx, sampler_ocean, uv + vec2(delta_uv, 0.0), 0.0).x;
     let sample_l = textureSampleLevel(texture_h_dx, sampler_ocean, uv - vec2(delta_uv, 0.0), 0.0).x;
@@ -221,6 +220,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let dz_u = textureSample(texture_dz, sampler_ocean, uv + vec2(0.0, delta_uv)).x;
     let dz_d = textureSample(texture_dz, sampler_ocean, uv - vec2(0.0, delta_uv)).x;
     
+    // world_step = fft_size / fft_subdivisions gives physical distance per texel
     let ddx_dx = (dx_r - dx_l) * amp * chop / (2.0 * world_step);
     let ddz_dz = (dz_u - dz_d) * amp * chop / (2.0 * world_step);
     let jacobian = (1.0 + ddx_dx) * (1.0 + ddz_dz);
@@ -303,7 +303,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_mix = smoothstep(-2.0, 4.0, in.height);
     var water_base = mix(ocean_settings.deep_color.rgb, ocean_settings.shallow_color.rgb, base_mix);
     water_base = mix(water_base, ocean_settings.sss_color.rgb * 0.5, turbidity * 0.5);
-    water_base *= intensity;
+    // Reduced floor from 0.35 to 0.12 to reduce whitewashing
+    water_base *= max(intensity, 0.12);
 
     let reflection_dampener = 1.0 - smoothstep(ocean_settings.reflection_min, ocean_settings.reflection_max, jacobian);
     let rougness_dynamic = mix(ocean_settings.roughness, ocean_settings.foam_roughness, foam_factor);

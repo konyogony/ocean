@@ -15,15 +15,12 @@ pub struct OceanPreset {
     pub description: String,
     pub created_at: i64,
     pub last_modified_at: i64,
-    pub fft_size: f32,
     pub fft_subdivisions: u32,
     pub time_scale: f32,
     pub ocean_seed: u32,
     pub chop_scale: f32,
     pub amplitude_scale: f32,
-    pub wave_scale: f32,
     pub wind_vector: [f32; 2],
-    pub amplitude: f32,
     pub l_small: f32,
     pub max_w: f32,
     pub fovy: f32,
@@ -201,15 +198,12 @@ impl OceanPreset {
             description: "".into(),
             created_at: 0,
             last_modified_at: 0,
-            fft_size: builder.fft_size,
             fft_subdivisions: builder.fft_subdivisions,
             time_scale: builder.time_scale,
             ocean_seed: builder.ocean_seed,
             chop_scale: builder.chop_scale,
             amplitude_scale: builder.amplitude_scale,
-            wave_scale: builder.mesh_size / builder.fft_size,
             wind_vector: builder.wind_vector,
-            amplitude: builder.amplitude,
             l_small: builder.l_small,
             max_w: builder.max_w,
             fovy: builder.fovy,
@@ -340,12 +334,9 @@ pub struct OceanSettingsUniform {
     pub moon_phase_offset: [f32; 3],
     pub _pad_moon: f32,
     pub mesh_size: f32,
-    pub fft_size: f32,
     pub time_scale: f32,
     pub chop_scale: f32,
     pub amplitude_scale: f32,
-    pub wave_scale: f32,
-    pub amplitude: f32,
     pub l_small: f32,
     pub max_w: f32,
     pub fovy: f32,
@@ -438,20 +429,18 @@ pub struct OceanSettingsUniform {
     pub steepness_threshold_high: f32,
     pub y_displacement_weight: f32,
     pub wave_epsilon: f32,
-    pub _pad_final: [f32; 9],
+    pub _pad_final: [f32; 20],
 }
 
 pub struct OceanSettingsBuilder {
     mesh_size: f32,
     mesh_subdivisions: u32,
-    fft_size: f32,
     fft_subdivisions: u32,
     time_scale: f32,
     ocean_seed: u32,
     chop_scale: f32,
     amplitude_scale: f32,
     wind_vector: [f32; 2],
-    amplitude: f32,
     l_small: f32,
     max_w: f32,
     fovy: f32,
@@ -561,14 +550,12 @@ impl Default for OceanSettingsBuilder {
         Self {
             mesh_size: 1000.0,
             mesh_subdivisions: 2048,
-            fft_size: 1000.0,
             fft_subdivisions: 256,
             time_scale: 1.5,
             ocean_seed: 0,
             chop_scale: 1.2,
             amplitude_scale: 1.0,
             wind_vector: [6.0, -8.0],
-            amplitude: 0.1,
             l_small: 0.1,
             max_w: 10.0,
             fovy: 60.0,
@@ -701,10 +688,6 @@ impl OceanSettingsBuilder {
         self.mesh_subdivisions = v;
         self
     }
-    pub fn fft_size(mut self, v: f32) -> Self {
-        self.fft_size = v;
-        self
-    }
     pub fn fft_subdivisions(mut self, v: u32) -> Self {
         self.fft_subdivisions = v;
         self
@@ -723,10 +706,6 @@ impl OceanSettingsBuilder {
     }
     pub fn wind_vector(mut self, v: [f32; 2]) -> Self {
         self.wind_vector = v;
-        self
-    }
-    pub fn amplitude(mut self, v: f32) -> Self {
-        self.amplitude = v;
         self
     }
     pub fn roughness(mut self, v: f32) -> Self {
@@ -777,13 +756,11 @@ impl OceanSettingsBuilder {
             fovy: preset.fovy,
             max_w: preset.max_w,
             l_small: preset.l_small,
-            amplitude: preset.amplitude,
             wind_vector: preset.wind_vector,
             amplitude_scale: preset.amplitude_scale,
             chop_scale: preset.chop_scale,
             time_scale: preset.time_scale,
             fft_subdivisions: preset.fft_subdivisions,
-            fft_size: preset.fft_size,
             sky_color_day_zenith: preset.sky_color_day_zenith,
             sky_color_day_horizon: preset.sky_color_day_horizon,
             sky_color_night_zenith: preset.sky_color_night_zenith,
@@ -873,14 +850,12 @@ impl OceanSettingsBuilder {
         Self {
             mesh_size: u.mesh_size,
             mesh_subdivisions: u.mesh_subdivisions,
-            fft_size: u.fft_size,
             fft_subdivisions: u.fft_subdivisions,
             time_scale: u.time_scale,
             ocean_seed: u.ocean_seed,
             chop_scale: u.chop_scale,
             amplitude_scale: u.amplitude_scale,
             wind_vector: u.wind_vector,
-            amplitude: u.amplitude,
             l_small: u.l_small,
             max_w: u.max_w,
             fovy: u.fovy,
@@ -1016,12 +991,9 @@ impl OceanSettingsBuilder {
             moon_phase_offset: self.moon_phase_offset,
             _pad_moon: 0.0,
             mesh_size: self.mesh_size,
-            fft_size: self.fft_size,
             time_scale: self.time_scale,
             chop_scale: self.chop_scale,
             amplitude_scale: self.amplitude_scale,
-            wave_scale: self.mesh_size / self.fft_size,
-            amplitude: self.amplitude,
             l_small: self.l_small,
             max_w: self.max_w,
             fovy: self.fovy,
@@ -1114,7 +1086,7 @@ impl OceanSettingsBuilder {
             steepness_threshold_high: self.steepness_threshold_high,
             y_displacement_weight: self.y_displacement_weight,
             wave_epsilon: self.wave_epsilon,
-            _pad_final: [0.0; 9],
+            _pad_final: [0.0; 20],
         }
     }
 }

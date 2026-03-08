@@ -23,12 +23,9 @@ struct OceanSettingsUniform {
     moon_phase_offset: vec3<f32>,
     _pad_moon: f32,
     mesh_size: f32,
-    fft_size: f32,
     time_scale: f32,
     chop_scale: f32,
     amplitude_scale: f32,
-    wave_scale: f32,
-    amplitude: f32,
     l_small: f32,
     max_w: f32,
     fovy: f32,
@@ -123,9 +120,7 @@ struct OceanSettingsUniform {
     steepness_threshold_high: f32,
     y_displacement_weight: f32,
     wave_epsilon: f32,
-    _pad_final_0: f32,
-    _pad_final_1: vec4<f32>,
-    _pad_final_2: vec4<f32>,
+    _pad_final: array<vec4<f32>, 4>,
 };
 
 @group(0) @binding(0) var<uniform> ocean_settings: OceanSettingsUniform;
@@ -149,7 +144,6 @@ fn combine_cascades(@builtin(global_invocation_id) gid: vec3<u32>) {
     let cascade_h_dx = textureLoad(in_h_dx, coords, 0);
     let cascade_dz = textureLoad(in_dz, coords, 0);
 
-    // direct sum, no weightings
     let sum_h_dx = combined_h_dx + cascade_h_dx;
     let sum_dz = combined_dz + cascade_dz;
 
