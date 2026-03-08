@@ -305,7 +305,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = water_base + sss;
     
     let depth_fade = smoothstep(-2.0, 2.5, in.height);
-    let view_angle_fade = pow(max(view_dir.y, 0.0), 0.40);
+    let view_angle_fade = pow(max(view_dir.y, 0.0), 1.2);
     let parallax_offset = -view_dir.xz * ocean_settings.caustic_depth / max(view_dir.y, 0.1);
     let caustic_uv = (in.world_pos.xz * ocean_settings.caustic_scale) + parallax_offset;
     let caustic_pattern = get_caustics_procedural(caustic_uv, camera.time);
@@ -314,7 +314,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let cam_height_fade = 1.0 - smoothstep(30.0, 200.0, cam_height);
     let dist_fade = 1.0 - smoothstep(50.0, ocean_settings.caustic_max_distance, dist) * cam_height_fade;
     let choppiness_mask = smoothstep(0.7, 1.0, jacobian);
-    let caustic_strength = sun_facing * foam_mask * dist_fade * depth_fade * view_angle_fade * choppiness_mask * 2.0;
+    let down_fade = smoothstep(0.8, 0.5, view_dir.y);  // Fades out grain when looking down
+    let caustic_strength = sun_facing * foam_mask * dist_fade * depth_fade * view_angle_fade * choppiness_mask * down_fade * 2.0;
     let caustic_color = caustic_pattern * ocean_settings.caustic_color_tint.rgb * caustic_strength * intensity * 2.0;
 
     color += caustic_color * ocean_settings.sss_color.rgb * 0.6;
@@ -406,29 +407,8 @@ fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
         let moon_glow_mask = smoothstep(0.0, 0.15, moon_dist_ang);
         let moon_glow = moon_glow_mask * pow(moon_dist_safe, ocean_settings.moon_halo_power) * ocean_settings.moon_halo_intensity * night_fade;
         col += vec3(0.5, 0.6, 0.8) * moon_glow;
-        if (star_visibility > 0.0) {
-            let star_phi = atan2(dir.z, dir.x);
-            let star_theta = asin(clamp(dir.y, -1.0, 1.0));
-            let star_uv_f = vec2(
-                (star_phi / (2.0 * pi) + 0.5) * ocean_settings.star_count,
-                (star_theta / pi + 0.5) * ocean_settings.star_count * 0.5
-            );
-            let star_grid = floor(star_uv_f);
-            let star_frac = fract(star_uv_f) - 0.5;
-            let star_hash_in = vec3(star_grid, 0.0);
-            let star_hash = hash31(star_hash_in);
-            
-            if (star_hash > ocean_settings.star_threshold) {
-                let star_radius = ocean_settings.star_size / 1000.0;
-                let star_dot = 1.0 - smoothstep(0.0, star_radius, length(star_frac));
-                let star_phase = hash31(star_hash_in + vec3(123.456, 789.012, 0.0));
-                let star_freq = mix(0.5, 3.0, hash31(star_hash_in + vec3(11.1, 22.2, 0.0)));
-                let blink = sin(camera.time * ocean_settings.star_blink_speed * star_freq + star_phase * 6.28318) * 0.4 + 0.6;
-                let star_brightness = mix(0.7, 1.4, star_phase);
-                let star_color = mix(vec3(1.0, 0.9, 0.75), vec3(0.8, 0.9, 1.0), hash31(star_hash_in + vec3(55.5, 66.6, 0.0)));
-                col += star_color * star_dot * blink * star_brightness * star_visibility * smoothstep(0.0, 0.15, dir.y);
-            }
-        }
+        
+        col += render_stars(dir, camera.time, star_visibility);
 
         if (ocean_settings.aurora_strength > 0.0) {
             col += get_aurora(dir, camera.time) * night_fade * ocean_settings.aurora_strength;
@@ -452,33 +432,6 @@ fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
 }
 
 
-fn get_aurora(dir: vec3<f32>, time: f32) -> vec3<f32> {
-    if (dir.y * 1.0 < ocean_settings.aurora_y_threshold) { return vec3(0.0); }
-    let phi = atan2(dir.z, dir.x);
-    let t = time * 0.08;
-
-    let wave = sin(phi * 2.5 + t * 1.20) * 0.100
-             + sin(phi * 5.1 - t * 0.75) * 0.050
-             + sin(phi * 9.3 + t * 2.30) * 0.025;
-
-    let band_y = dir.y + wave;
-    let band = exp(-pow((band_y - 0.55) * 4.5, 2.0));
-
-    let uv_a = vec2(sin(phi) * 0.8, cos(phi) * 0.8 + dir.y * 2.5);
-    let coarse = fbm(uv_a * vec2(2.8, 2.0) + vec2(t * 0.12, 0.0));
-    let fine = fbm(uv_a * vec2(6.5, 3.5) - vec2(t * 0.22, t * 0.08));
-
-    let horizon_fade = smoothstep(0.04, 0.28, dir.y);
-    let aurora_mask = band * coarse * horizon_fade;
-
-    let aurora_green = vec3(0.05, 0.95, 0.30);
-    let aurora_cyan = vec3(0.00, 0.70, 0.95);
-    let aurora_purple = vec3(0.55, 0.10, 0.85);
-    var aurora_col = mix(aurora_green, aurora_cyan, smoothstep(0.30, 0.60, fine));
-    aurora_col = mix(aurora_col, aurora_purple, smoothstep(0.65, 0.85, fine) * 0.5);
-
-    return aurora_col * aurora_mask * ocean_settings.aurora_brightness;
-}
 
 fn hash31(p: vec3<f32>) -> f32 {
     var p3 = fract(p * 0.1031);
@@ -733,4 +686,75 @@ fn voronoi_caustic(uv: vec2<f32>, time: f32) -> f32 {
     let edge_dist = second_min - min_dist;
     let caustic = 1.0 - smoothstep(0.0, 0.2, edge_dist);
     return pow(caustic, 1.5);
+}
+
+fn render_stars(dir: vec3<f32>, time: f32, star_visibility: f32) -> vec3<f32> {
+    if (star_visibility <= 0.0) { return vec3(0.0); }
+
+    let abs_d = abs(dir);
+
+    var face_uv: vec2<f32>;
+    var face_id: f32;
+    if (abs_d.x >= abs_d.y && abs_d.x >= abs_d.z) {
+        face_id = select(0.0, 1.0, dir.x > 0.0);
+        face_uv = vec2(dir.z, dir.y) / abs_d.x;
+    } else if (abs_d.y >= abs_d.x && abs_d.y >= abs_d.z) {
+        face_id = select(2.0, 3.0, dir.y > 0.0);
+        face_uv = vec2(dir.x, dir.z) / abs_d.y;
+    } else {
+        face_id = select(4.0, 5.0, dir.z > 0.0);
+        face_uv = vec2(dir.x, dir.y) / abs_d.z;
+    }
+    let density = max(ocean_settings.star_count * 0.12, 1.0);
+    let scaled_uv = face_uv * density;
+
+    let star_grid = floor(scaled_uv);
+    let star_frac = fract(scaled_uv) - 0.5;
+    let star_hash_in = vec3(star_grid, face_id * 13.7 + 3.1);
+    let star_hash = hash31(star_hash_in);
+
+    if (star_hash <= ocean_settings.star_threshold) { return vec3(0.0); }
+    let star_radius = clamp(ocean_settings.star_size / 1000.0, 0.001, 0.49);
+
+    let star_dist = length(star_frac);
+    let star_dot = 1.0 - smoothstep(0.0, star_radius, star_dist);
+    if (star_dot <= 0.0) { return vec3(0.0); }
+
+    let star_phase = hash31(star_hash_in + vec3(123.456, 789.012, 0.0));
+    let star_freq = mix(0.5, 3.0, hash31(star_hash_in + vec3(11.1, 22.2, 0.0)));
+    let blink = sin(time * ocean_settings.star_blink_speed * star_freq + star_phase * 6.28318) * 0.4 + 0.6;
+    let star_brightness = mix(0.7, 1.4, star_phase);
+    let star_color = mix(vec3(1.0, 0.9, 0.75), vec3(0.8, 0.9, 1.0), hash31(star_hash_in + vec3(55.5, 66.6, 0.0)));
+    let horizon_fade = smoothstep(0.0, 0.15, dir.y);
+    return star_color * star_dot * blink * star_brightness * star_visibility * horizon_fade;
+}
+
+// yep this is vibe coded..
+fn get_aurora(dir: vec3<f32>, time: f32) -> vec3<f32> {
+    let normalized_y = clamp(dir.y, -1.0, 1.0);
+    if (normalized_y < ocean_settings.aurora_y_threshold) { return vec3(0.0); }
+    
+    let phi = atan2(dir.z, dir.x);
+    let t = time * 0.08;
+
+    let wave = sin(phi * 3.0 + t * 1.20) * 0.100
+             + sin(phi * 5.0 - t * 0.75) * 0.050
+             + sin(phi * 9.0 + t * 2.30) * 0.025;
+
+    let band_y = normalized_y + wave * (1.0 - abs(normalized_y) * 0.5); // Reduce wave at poles
+    let band = exp(-pow((band_y - 0.55) * 4.5, 2.0));
+
+    let uv_a = vec2(sin(phi) * 0.8 * (1.0 - abs(normalized_y) * 0.3), cos(phi) * 0.8 * (1.0 - abs(normalized_y) * 0.3) + normalized_y * 2.5);
+    let coarse = fbm(uv_a * vec2(2.8, 2.0) + vec2(t * 0.12, 0.0));
+    let fine = fbm(uv_a * vec2(6.5, 3.5) - vec2(t * 0.22, t * 0.08));
+    let horizon_fade = smoothstep(0.04, 0.28, normalized_y) * smoothstep(0.95, 0.7, normalized_y);
+    let aurora_mask = band * coarse * horizon_fade;
+
+    let aurora_green = vec3(0.05, 0.95, 0.30);
+    let aurora_cyan = vec3(0.00, 0.70, 0.95);
+    let aurora_purple = vec3(0.55, 0.10, 0.85);
+    var aurora_col = mix(aurora_green, aurora_cyan, smoothstep(0.30, 0.60, fine));
+    aurora_col = mix(aurora_col, aurora_purple, smoothstep(0.65, 0.85, fine) * 0.5);
+
+    return aurora_col * aurora_mask * ocean_settings.aurora_brightness;
 }
