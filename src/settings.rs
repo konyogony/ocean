@@ -438,7 +438,7 @@ pub struct OceanSettingsUniform {
     pub steepness_threshold_high: f32,
     pub y_displacement_weight: f32,
     pub wave_epsilon: f32,
-    pub _pad_final: [f32; 5],
+    pub _pad_final: [f32; 9],
 }
 
 pub struct OceanSettingsBuilder {
@@ -1104,7 +1104,7 @@ impl OceanSettingsBuilder {
             steepness_threshold_high: self.steepness_threshold_high,
             y_displacement_weight: self.y_displacement_weight,
             wave_epsilon: self.wave_epsilon,
-            _pad_final: [0.0; 5],
+            _pad_final: [0.0; 9],
         }
     }
 }

@@ -19,9 +19,9 @@ struct OceanSettingsUniform {
     cloud_color_night: vec4<f32>,
     cloud_color_day: vec4<f32>,
     wind_vector: vec2<f32>,
-    _pad_vec2: vec2<f32>, // Pad
-    moon_phase_offset: vec3<f32>, 
-    _pad_moon: f32, // Pad
+    _pad_vec2: vec2<f32>,
+    moon_phase_offset: vec3<f32>,
+    _pad_moon: f32,
     mesh_size: f32,
     fft_size: f32,
     time_scale: f32,
@@ -77,51 +77,55 @@ struct OceanSettingsUniform {
     pad_b: vec4<u32>,
     cascade_data: array<vec4<f32>, 6>,
     cascade_count: u32,
-    _pad_cascade: vec3<u32>,
-    sunset_scatter_color: vec3<f32>,      // 1.05, 0.88, 0.72
-    sunset_scatter_intensity: f32,       // 0.55
-    foam_base_color: vec3<f32>,          // 0.95, 0.98, 0.92
-    sss_min_height: f32,                 // -0.5
-    sss_max_height: f32,                 // 1.5
-    sss_power: f32,                      // 8.0
-    sss_intensity: f32,                  // 1.0
-    detail_fade: f32,                    // 800.0
-    ambient_scale: f32,                  // 0.08
-    blend_strength: f32,                 // 0.4
-    bloom_scale: f32,                    // 0.3
-    reflection_min: f32,                 // 0.2
-    reflection_max: f32,                 // 0.9
-    moon_light_dim: f32,                 // 0.25
-    sky_zenith_gradient_exp: f32,        // 1.5
-    horizon_glow_mult: f32,              // 1.2
-    sunset_orange_weight: f32,           // 0.55
-    sunset_intensity: f32,               // 3.8
-    sun_halo_intensity: f32,             // 0.02
-    moon_halo_intensity: f32,            // 0.1
-    micro_uv_freq: f32,                  // 0.01
-    micro_time_freq: f32,                // 0.001
-    micro_strength_mod: f32,             // 0.05
-    foam_crest_width: f32,               // 0.2
-    caustic_aberration: f32,             // 0.01
-    caustic_smooth_low: f32,             // 0.6
-    caustic_smooth_high: f32,            // 1.0
-    aurora_brightness: f32,              // 2.5
-    aurora_y_threshold: f32,             // 0.04
-    water_brightness_mod: f32,           // 0.8
-    decay_factor: f32,                   // 0.98
-    dissipation_factor: f32,             // 0.99
-    warp_uv_scale: f32,                  // 0.5
-    warp_strength: f32,                  // 0.5
-    warp_time_scale: f32,                // 0.1
-    foam_octaves: u32,                   // 3u
-    foam_power: f32,                     // 1.5
-    hash_scale: f32,                     // 0.1031
-    hash_dot: f32,                       // 33.33
-    steepness_threshold_low: f32,        // 0.1
-    steepness_threshold_high: f32,       // 0.8
-    y_displacement_weight: f32,          // 0.5
-    wave_epsilon: f32,                   // 0.0001
-    _pad_final: f32,                     // Padding
+    _pad_cascade_0: u32,
+    _pad_cascade_1: u32,
+    _pad_cascade_2: u32,
+    sunset_scatter_color: vec3<f32>,
+    sunset_scatter_intensity: f32,
+    foam_base_color: vec3<f32>,
+    sss_min_height: f32,
+    sss_max_height: f32,
+    sss_power: f32,
+    sss_intensity: f32,
+    detail_fade: f32,
+    ambient_scale: f32,
+    blend_strength: f32,
+    bloom_scale: f32,
+    reflection_min: f32,
+    reflection_max: f32,
+    moon_light_dim: f32,
+    sky_zenith_gradient_exp: f32,
+    horizon_glow_mult: f32,
+    sunset_orange_weight: f32,
+    sunset_intensity: f32,
+    sun_halo_intensity: f32,
+    moon_halo_intensity: f32,
+    micro_uv_freq: f32,
+    micro_time_freq: f32,
+    micro_strength_mod: f32,
+    foam_crest_width: f32,
+    caustic_aberration: f32,
+    caustic_smooth_low: f32,
+    caustic_smooth_high: f32,
+    aurora_brightness: f32,
+    aurora_y_threshold: f32,
+    water_brightness_mod: f32,
+    decay_factor: f32,
+    dissipation_factor: f32,
+    warp_uv_scale: f32,
+    warp_strength: f32,
+    warp_time_scale: f32,
+    foam_octaves: u32,
+    foam_power: f32,
+    hash_scale: f32,
+    hash_dot: f32,
+    steepness_threshold_low: f32,
+    steepness_threshold_high: f32,
+    y_displacement_weight: f32,
+    wave_epsilon: f32,
+    _pad_final_0: f32,
+    _pad_final_1: vec4<f32>,
+    _pad_final_2: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> ocean_settings: OceanSettingsUniform;

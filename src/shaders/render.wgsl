@@ -19,9 +19,9 @@ struct OceanSettingsUniform {
     cloud_color_night: vec4<f32>,
     cloud_color_day: vec4<f32>,
     wind_vector: vec2<f32>,
-    _pad_vec2: vec2<f32>, // Pad
-    moon_phase_offset: vec3<f32>, 
-    _pad_moon: f32, // Pad
+    _pad_vec2: vec2<f32>,
+    moon_phase_offset: vec3<f32>,
+    _pad_moon: f32,
     mesh_size: f32,
     fft_size: f32,
     time_scale: f32,
@@ -77,51 +77,55 @@ struct OceanSettingsUniform {
     pad_b: vec4<u32>,
     cascade_data: array<vec4<f32>, 6>,
     cascade_count: u32,
-    _pad_cascade: vec3<u32>,
-    sunset_scatter_color: vec3<f32>,      // 1.05, 0.88, 0.72
-    sunset_scatter_intensity: f32,       // 0.55
-    foam_base_color: vec3<f32>,          // 0.95, 0.98, 0.92
-    sss_min_height: f32,                 // -0.5
-    sss_max_height: f32,                 // 1.5
-    sss_power: f32,                      // 8.0
-    sss_intensity: f32,                  // 1.0
-    detail_fade: f32,                    // 800.0
-    ambient_scale: f32,                  // 0.08
-    blend_strength: f32,                 // 0.4
-    bloom_scale: f32,                    // 0.3
-    reflection_min: f32,                 // 0.2
-    reflection_max: f32,                 // 0.9
-    moon_light_dim: f32,                 // 0.25
-    sky_zenith_gradient_exp: f32,        // 1.5
-    horizon_glow_mult: f32,              // 1.2
-    sunset_orange_weight: f32,           // 0.55
-    sunset_intensity: f32,               // 3.8
-    sun_halo_intensity: f32,             // 0.02
-    moon_halo_intensity: f32,            // 0.1
-    micro_uv_freq: f32,                  // 0.01
-    micro_time_freq: f32,                // 0.001
-    micro_strength_mod: f32,             // 0.05
-    foam_crest_width: f32,               // 0.2
-    caustic_aberration: f32,             // 0.01
-    caustic_smooth_low: f32,             // 0.6
-    caustic_smooth_high: f32,            // 1.0
-    aurora_brightness: f32,              // 2.5
-    aurora_y_threshold: f32,             // 0.04
-    water_brightness_mod: f32,           // 0.8
-    decay_factor: f32,                   // 0.98
-    dissipation_factor: f32,             // 0.99
-    warp_uv_scale: f32,                  // 0.5
-    warp_strength: f32,                  // 0.5
-    warp_time_scale: f32,                // 0.1
-    foam_octaves: u32,                   // 3u
-    foam_power: f32,                     // 1.5
-    hash_scale: f32,                     // 0.1031
-    hash_dot: f32,                       // 33.33
-    steepness_threshold_low: f32,        // 0.1
-    steepness_threshold_high: f32,       // 0.8
-    y_displacement_weight: f32,          // 0.5
-    wave_epsilon: f32,                   // 0.0001
-    _pad_final: f32,                     // Padding
+    _pad_cascade_0: u32,
+    _pad_cascade_1: u32,
+    _pad_cascade_2: u32,
+    sunset_scatter_color: vec3<f32>,
+    sunset_scatter_intensity: f32,
+    foam_base_color: vec3<f32>,
+    sss_min_height: f32,
+    sss_max_height: f32,
+    sss_power: f32,
+    sss_intensity: f32,
+    detail_fade: f32,
+    ambient_scale: f32,
+    blend_strength: f32,
+    bloom_scale: f32,
+    reflection_min: f32,
+    reflection_max: f32,
+    moon_light_dim: f32,
+    sky_zenith_gradient_exp: f32,
+    horizon_glow_mult: f32,
+    sunset_orange_weight: f32,
+    sunset_intensity: f32,
+    sun_halo_intensity: f32,
+    moon_halo_intensity: f32,
+    micro_uv_freq: f32,
+    micro_time_freq: f32,
+    micro_strength_mod: f32,
+    foam_crest_width: f32,
+    caustic_aberration: f32,
+    caustic_smooth_low: f32,
+    caustic_smooth_high: f32,
+    aurora_brightness: f32,
+    aurora_y_threshold: f32,
+    water_brightness_mod: f32,
+    decay_factor: f32,
+    dissipation_factor: f32,
+    warp_uv_scale: f32,
+    warp_strength: f32,
+    warp_time_scale: f32,
+    foam_octaves: u32,
+    foam_power: f32,
+    hash_scale: f32,
+    hash_dot: f32,
+    steepness_threshold_low: f32,
+    steepness_threshold_high: f32,
+    y_displacement_weight: f32,
+    wave_epsilon: f32,
+    _pad_final_0: f32,
+    _pad_final_1: vec4<f32>,
+    _pad_final_2: vec4<f32>,
 };
 
 struct CameraUniform {
@@ -362,31 +366,34 @@ fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
     let sun_halo = pow(max(sun_dist, 0.0), ocean_settings.sun_halo_power) * ocean_settings.sun_halo_intensity;
     col += (sun_disk + sun_halo) * mix(ocean_settings.sun_color.rgb, ocean_settings.sky_color_sunset_orange.rgb * 1.2, sunset_timing * 0.85) * max(intensity, sunset_timing * 0.5);
 
+    let moon_dot = dot(dir, moon_dir);
+    let moon_cos_edge = cos(ocean_settings.moon_radius);
     var hit_moon = false;
-    if (dot(dir, moon_dir) > 0.0) {
-        let center = moon_dir * ocean_settings.moon_dist;
-        let radius = ocean_settings.moon_radius;
-        
-        let oc = -center;
-        let b = dot(oc, dir);
-        let c = dot(oc, oc) - radius * radius;
-        let h = b * b - c;
-        
-        if (h > 0.0) {
+    if (moon_dot > moon_cos_edge * 0.98) {
+        let moon_up_ref = select(vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), abs(moon_dir.y) > 0.99);
+        let moon_right = normalize(cross(moon_dir, moon_up_ref));
+        let moon_up = cross(moon_right, moon_dir);
+
+        let perp = dir - moon_dir * moon_dot;
+        let local_u = dot(perp, moon_right) / ocean_settings.moon_radius;
+        let local_v = dot(perp, moon_up) / ocean_settings.moon_radius;
+        let r2 = local_u * local_u + local_v * local_v;
+
+        let rim_aa = smoothstep(1.0, 0.92, r2);
+
+        if (rim_aa > 0.0) {
             hit_moon = true;
-            let t_hit = -b - sqrt(h);
-            let hit_pos = dir * t_hit;
-            let normal = normalize(hit_pos - center);
+            let normal_z = sqrt(max(0.0, 1.0 - r2));
+            let normal = normalize(moon_right * local_u + moon_up * local_v + moon_dir * normal_z);
+
             let phi_m = atan2(normal.z, normal.x);
             let theta_m = asin(clamp(normal.y, -1.0, 1.0));
-            let uv_moon = vec2<f32>(phi_m / 6.28318, theta_m / 3.14159) * ocean_settings.moon_crater_scale;
+            let uv_moon = vec2<f32>(phi_m / (2 * pi), theta_m / pi) * ocean_settings.moon_crater_scale;
             let craters = 1.0 - moon_fbm(uv_moon) * 0.6;
+
             let diffuse = max(dot(normal, sun_dir), 0.0);
             let terminator = smoothstep(-0.15, 0.15, diffuse);
             let surface_col = mix(ocean_settings.moon_color_dark.rgb, ocean_settings.moon_color_lit.rgb * craters * 0.8, terminator);
-            let sin_rad = radius / ocean_settings.moon_dist;
-            let cos_rad = sqrt(max(0.0, 1.0 - sin_rad * sin_rad));
-            let rim_aa = smoothstep(cos_rad - sin_rad * 0.015, cos_rad, dot(dir, moon_dir));
             let moon_visibility = 1.0 - intensity * 0.7;
             col = mix(col, surface_col * moon_visibility, rim_aa);
         } 
@@ -412,7 +419,8 @@ fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
             let star_hash = hash31(star_hash_in);
             
             if (star_hash > ocean_settings.star_threshold) {
-                let star_dot = 1.0 - smoothstep(0.0, ocean_settings.star_size * 0.5, length(star_frac));
+                let star_radius = ocean_settings.star_size / 1000.0;
+                let star_dot = 1.0 - smoothstep(0.0, star_radius, length(star_frac));
                 let star_phase = hash31(star_hash_in + vec3(123.456, 789.012, 0.0));
                 let star_freq = mix(0.5, 3.0, hash31(star_hash_in + vec3(11.1, 22.2, 0.0)));
                 let blink = sin(camera.time * ocean_settings.star_blink_speed * star_freq + star_phase * 6.28318) * 0.4 + 0.6;

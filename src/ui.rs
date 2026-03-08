@@ -1,5 +1,5 @@
 use crate::camera::Camera;
-use crate::settings::{OceanPreset, OceanSettingsBuilder};
+use crate::settings::{OceanPreset, OceanSettingsBuilder, MAX_CASCADES};
 use crate::state::State;
 use crate::{DESC, VERSION};
 use chrono::{Local, TimeZone};
@@ -67,6 +67,32 @@ macro_rules! settings_slider_vec4_ui {
     }};
 }
 
+macro_rules! settings_slider_vec3_ui {
+    ($ui:expr, $label:expr, $value:expr, $range:expr, $default:expr, $($changed:expr),+ $(,)?) => {{
+        $ui.push_id($value as *const _ as usize, |ui| {
+            egui::CollapsingHeader::new($label)
+                .default_open(false)
+                .show(ui, |ui| {
+                    let labels = ["R", "G", "B"];
+
+                    for i in 0..3 {
+                        ui.horizontal(|ui| {
+                            ui.label(labels[i]);
+                            if ui.add(egui::Slider::new(&mut $value[i], $range)).changed() {
+                                $( $changed = true; )+
+                            }
+                        });
+                    }
+
+                    if ui.small_button("⟲ Reset").clicked() {
+                        *$value = $default;
+                        $( $changed = true; )+
+                    }
+                });
+        });
+    }};
+}
+
 fn fmt(ts: i64) -> String {
     Local
         .timestamp_opt(ts, 0)
@@ -107,6 +133,7 @@ impl State {
             .anchor(egui::Align2::RIGHT_TOP, [-10.0, 10.0])
             .show(context, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
+
                     egui::CollapsingHeader::new("General")
                         .default_open(true)
                         .show(ui, |ui| {
@@ -114,48 +141,32 @@ impl State {
                                 ui.label(format!(
                                     "Name: {}{}",
                                     self.current_ocean_preset.preset_name,
-                                    if self.preset_modified {
-                                        "  • modified"
-                                    } else {
-                                        ""
-                                    }
+                                    if self.preset_modified { "  • modified" } else { "" }
                                 ));
-                                ui.label(format!(
-                                    "Description: {}",
-                                    self.current_ocean_preset.description
-                                ));
+                                ui.label(format!("Description: {}", self.current_ocean_preset.description));
                                 ui.small(format!("Author: {}", self.current_ocean_preset.author));
-                                ui.small(format!(
-                                    "Created: {}",
-                                    fmt(self.current_ocean_preset.created_at)
-                                ));
-                                ui.small(format!(
-                                    "Last modified: {}",
-                                    fmt(self.current_ocean_preset.last_modified_at)
-                                ));
+                                ui.small(format!("Created: {}", fmt(self.current_ocean_preset.created_at)));
+                                ui.small(format!("Last modified: {}", fmt(self.current_ocean_preset.last_modified_at)));
                             });
 
                             settings_number_ui!(
-                                ui,
-                                "Seed",
+                                ui, "Seed",
                                 &mut self.draft_settings.ocean_seed,
                                 defaults.ocean_seed,
-                                self.settings_changed,
-                                self.preset_modified
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Time Scale",
+                                ui, "Time Scale",
                                 &mut self.draft_settings.time_scale,
-                                0.0..=20.0,
-                                defaults.time_scale,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=20.0, defaults.time_scale,
+                                self.settings_changed, self.preset_modified
                             );
-
-
-                            settings_slider_ui!(ui, "Time of day", &mut self.draft_settings.daynight_cycle, 0.0..=1.0, defaults.daynight_cycle, self.settings_changed, self.preset_modified);
+                            settings_slider_ui!(
+                                ui, "Time of Day",
+                                &mut self.draft_settings.daynight_cycle,
+                                0.0..=1.0, defaults.daynight_cycle,
+                                self.settings_changed, self.preset_modified
+                            );
                         });
                     ui.separator();
 
@@ -163,93 +174,151 @@ impl State {
                         .default_open(true)
                         .show(ui, |ui| {
                             settings_slider_ui!(
-                                ui,
-                                "FFT Subdivisions (log2) (buggy)",
+                                ui, "FFT Subdivisions (log2) (buggy)",
                                 &mut self.draft_settings.pass_num,
-                                0..=defaults.pass_num,
-                                defaults.pass_num,
-                                self.settings_changed,
-                                self.preset_modified
+                                0..=defaults.pass_num, defaults.pass_num,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "FFT Size",
+                                ui, "FFT Size",
                                 &mut self.draft_settings.fft_size,
-                                256.0..=16384.0,
-                                defaults.fft_size,
-                                self.settings_changed,
-                                self.preset_modified
+                                256.0..=16384.0, defaults.fft_size,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Amplitude",
+                                ui, "Amplitude",
                                 &mut self.draft_settings.amplitude,
-                                0.0010..=20.0,
-                                defaults.amplitude,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.001..=20.0, defaults.amplitude,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Amplitude Scale",
+                                ui, "Amplitude Scale",
                                 &mut self.draft_settings.amplitude_scale,
-                                0.0..=20.0,
-                                defaults.amplitude_scale,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=20.0, defaults.amplitude_scale,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Chop Scale",
+                                ui, "Chop Scale",
                                 &mut self.draft_settings.chop_scale,
-                                0.0..=10.0,
-                                defaults.chop_scale,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=10.0, defaults.chop_scale,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Wind X",
+                                ui, "Wind X",
                                 &mut self.draft_settings.wind_vector[0],
-                                -50.0..=50.0,
-                                defaults.wind_vector[0],
-                                self.settings_changed,
-                                self.preset_modified
+                                -50.0..=50.0, defaults.wind_vector[0],
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Wind Y",
+                                ui, "Wind Y",
                                 &mut self.draft_settings.wind_vector[1],
-                                -50.0..=50.0,
-                                defaults.wind_vector[1],
-                                self.settings_changed,
-                                self.preset_modified
+                                -50.0..=50.0, defaults.wind_vector[1],
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Damping",
+                                ui, "Damping",
                                 &mut self.draft_settings.l_small,
-                                0.001..=100.5,
-                                defaults.l_small,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.001..=100.5, defaults.l_small,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Max Angular Freq.",
+                                ui, "Max Angular Freq.",
                                 &mut self.draft_settings.max_w,
-                                0.0..=100.0,
-                                defaults.max_w,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=100.0, defaults.max_w,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Wave Epsilon",
+                                &mut self.draft_settings.wave_epsilon,
+                                0.00001..=0.01, defaults.wave_epsilon,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Y Displacement Weight",
+                                &mut self.draft_settings.y_displacement_weight,
+                                0.0..=2.0, defaults.y_displacement_weight,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Steepness Threshold Low",
+                                &mut self.draft_settings.steepness_threshold_low,
+                                0.0..=1.0, defaults.steepness_threshold_low,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Steepness Threshold High",
+                                &mut self.draft_settings.steepness_threshold_high,
+                                0.0..=1.0, defaults.steepness_threshold_high,
+                                self.settings_changed, self.preset_modified
+                            );
+                        });
+                    ui.separator();
+
+                    egui::CollapsingHeader::new("Cascades")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            let count = (self.draft_settings.cascade_count as usize).min(MAX_CASCADES);
+                            for i in 0..count {
+                                ui.push_id(i, |ui| {
+                                    egui::CollapsingHeader::new(format!("Cascade {}", i))
+                                        .default_open(true)
+                                        .show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                if ui.add(
+                                                    egui::Slider::new(&mut self.draft_settings.cascade_data[i][0], 10.0..=16384.0).text("FFT Size")
+                                                ).changed() {
+                                                    self.settings_changed = true;
+                                                    self.preset_modified = true;
+                                                }
+                                            });
+                                            ui.horizontal(|ui| {
+                                                if ui.add(
+                                                    egui::Slider::new(&mut self.draft_settings.cascade_data[i][1], 0.0..=5.0).text("Amplitude")
+                                                ).changed() {
+                                                    self.settings_changed = true;
+                                                    self.preset_modified = true;
+                                                }
+                                            });
+                                        });
+                                });
+                            }
+
+                            ui.horizontal(|ui| {
+                                if ui.button("+ Add Cascade").clicked()
+                                    && (self.draft_settings.cascade_count as usize) < MAX_CASCADES
+                                {
+                                    let idx = self.draft_settings.cascade_count as usize;
+                                    self.draft_settings.cascade_data[idx] = [250.0, 0.3, 0.0, 0.0];
+                                    self.draft_settings.cascade_count += 1;
+                                    self.settings_changed = true;
+                                    self.preset_modified = true;
+                                }
+
+                                if ui.button("− Remove Last").clicked()
+                                    && self.draft_settings.cascade_count > 1
+                                {
+                                    self.draft_settings.cascade_count -= 1;
+                                    self.settings_changed = true;
+                                    self.preset_modified = true;
+                                }
+                            });
+                        });
+                    ui.separator();
+
+                    egui::CollapsingHeader::new("Foam Simulation")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            settings_slider_ui!(
+                                ui, "Decay Factor",
+                                &mut self.draft_settings.decay_factor,
+                                0.9..=1.0, defaults.decay_factor,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Dissipation Factor",
+                                &mut self.draft_settings.dissipation_factor,
+                                0.9..=1.0, defaults.dissipation_factor,
+                                self.settings_changed, self.preset_modified
                             );
                         });
                     ui.separator();
@@ -258,53 +327,34 @@ impl State {
                         .default_open(false)
                         .show(ui, |ui| {
                             settings_slider_ui!(
-                                ui,
-                                "FarZ (Render distance)",
+                                ui, "FarZ (Render Distance)",
                                 &mut self.draft_settings.zfar,
-                                100.0..=10_000.0,
-                                defaults.zfar,
-                                self.settings_changed,
-                                self.preset_modified
+                                100.0..=10_000.0, defaults.zfar,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "FOV",
+                                ui, "FOV",
                                 &mut self.draft_settings.fovy,
-                                30.0..=120.0,
-                                defaults.fovy,
-                                self.settings_changed,
-                                self.preset_modified
+                                30.0..=120.0, defaults.fovy,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Camera Speed",
+                                ui, "Camera Speed",
                                 &mut self.draft_settings.cam_speed,
-                                1.0..=100.0,
-                                defaults.cam_speed,
-                                self.settings_changed,
-                                self.preset_modified
+                                1.0..=100.0, defaults.cam_speed,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Camera Boost",
+                                ui, "Camera Boost",
                                 &mut self.draft_settings.cam_boost,
-                                0.0..=10.0,
-                                defaults.cam_boost,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=10.0, defaults.cam_boost,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Mouse Sensitivity",
+                                ui, "Mouse Sensitivity",
                                 &mut self.draft_settings.cam_sensitivity,
-                                0.0001..=0.01,
-                                defaults.cam_sensitivity,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0001..=0.01, defaults.cam_sensitivity,
+                                self.settings_changed, self.preset_modified
                             );
                         });
                     ui.separator();
@@ -313,53 +363,76 @@ impl State {
                         .default_open(false)
                         .show(ui, |ui| {
                             settings_slider_ui!(
-                                ui,
-                                "Roughness",
+                                ui, "Roughness",
                                 &mut self.draft_settings.roughness,
-                                0.0001..=1.0,
-                                defaults.roughness,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0001..=1.0, defaults.roughness,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Base Reflectance",
+                                ui, "Base Reflectance (F0)",
                                 &mut self.draft_settings.f_0,
-                                0.0001..=1.0,
-                                defaults.f_0,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0001..=1.0, defaults.f_0,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Specular Scale",
+                                ui, "Specular Scale",
                                 &mut self.draft_settings.specular_scale,
-                                0.001..=3.0,
-                                defaults.specular_scale,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.001..=3.0, defaults.specular_scale,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Reflection Scale",
+                                ui, "Reflection Scale",
                                 &mut self.draft_settings.reflection_scale,
-                                0.001..=3.0,
-                                defaults.reflection_scale,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.001..=3.0, defaults.reflection_scale,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "SSS Distortion Scale",
+                                ui, "Reflection Min",
+                                &mut self.draft_settings.reflection_min,
+                                0.0..=1.0, defaults.reflection_min,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Reflection Max",
+                                &mut self.draft_settings.reflection_max,
+                                0.0..=1.0, defaults.reflection_max,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "SSS Distortion Scale",
                                 &mut self.draft_settings.sss_distortion_scale,
-                                0.001..=3.0,
-                                defaults.sss_distortion_scale,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.001..=3.0, defaults.sss_distortion_scale,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Ambient Scale",
+                                &mut self.draft_settings.ambient_scale,
+                                0.0..=1.0, defaults.ambient_scale,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Blend Strength",
+                                &mut self.draft_settings.blend_strength,
+                                0.0..=1.0, defaults.blend_strength,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Bloom Scale",
+                                &mut self.draft_settings.bloom_scale,
+                                0.0..=2.0, defaults.bloom_scale,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Water Brightness Mod",
+                                &mut self.draft_settings.water_brightness_mod,
+                                0.0..=2.0, defaults.water_brightness_mod,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Detail Fade",
+                                &mut self.draft_settings.detail_fade,
+                                0.0..=2000.0, defaults.detail_fade,
+                                self.settings_changed, self.preset_modified
                             );
                         });
                     ui.separator();
@@ -367,54 +440,117 @@ impl State {
                     egui::CollapsingHeader::new("Surface Details (Foam & Micro Normals)")
                         .default_open(false)
                         .show(ui, |ui| {
+                            ui.label("Foam");
                             settings_slider_ui!(
-                                ui,
-                                "Micro Normal Strength",
-                                &mut self.draft_settings.micro_normal_strength,
-                                0.0..=1.0,
-                                defaults.micro_normal_strength,
-                                self.settings_changed,
-                                self.preset_modified
-                            );
-
-                            settings_slider_ui!(
-                                ui,
-                                "Foam Scale",
+                                ui, "Foam Scale",
                                 &mut self.draft_settings.foam_scale,
-                                0.001..=10.0,
-                                defaults.foam_scale,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.001..=10.0, defaults.foam_scale,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Foam Threshold",
+                                ui, "Foam Threshold",
                                 &mut self.draft_settings.foam_threshold,
-                                0.0..=1.0,
-                                defaults.foam_threshold,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=1.0, defaults.foam_threshold,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Foam Speed",
+                                ui, "Foam Speed",
                                 &mut self.draft_settings.foam_speed,
-                                0.0..=1.0,
-                                defaults.foam_speed,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=1.0, defaults.foam_speed,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Foam Roughness",
+                                &mut self.draft_settings.foam_roughness,
+                                0.0..=1.0, defaults.foam_roughness,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Foam Crest Width",
+                                &mut self.draft_settings.foam_crest_width,
+                                0.0..=1.0, defaults.foam_crest_width,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_number_ui!(
+                                ui, "Foam Octaves",
+                                &mut self.draft_settings.foam_octaves,
+                                defaults.foam_octaves,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Foam Power",
+                                &mut self.draft_settings.foam_power,
+                                0.1..=5.0, defaults.foam_power,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_vec3_ui!(
+                                ui, "Foam Base Color",
+                                &mut self.draft_settings.foam_base_color,
+                                0.0..=1.0, defaults.foam_base_color,
+                                self.settings_changed, self.preset_modified
                             );
 
+                            ui.separator();
+                            ui.label("Micro Normals");
                             settings_slider_ui!(
-                                ui,
-                                "Foam Roughness",
-                                &mut self.draft_settings.foam_roughness,
-                                0.0..=1.0,
-                                defaults.foam_roughness,
-                                self.settings_changed,
-                                self.preset_modified
+                                ui, "Micro Normal Strength",
+                                &mut self.draft_settings.micro_normal_strength,
+                                0.0..=1.0, defaults.micro_normal_strength,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Micro UV Freq",
+                                &mut self.draft_settings.micro_uv_freq,
+                                0.0001..=0.1, defaults.micro_uv_freq,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Micro Time Freq",
+                                &mut self.draft_settings.micro_time_freq,
+                                0.00001..=0.01, defaults.micro_time_freq,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Micro Strength Mod",
+                                &mut self.draft_settings.micro_strength_mod,
+                                0.0..=1.0, defaults.micro_strength_mod,
+                                self.settings_changed, self.preset_modified
+                            );
+
+                            ui.separator();
+                            ui.label("UV Warp");
+                            settings_slider_ui!(
+                                ui, "Warp UV Scale",
+                                &mut self.draft_settings.warp_uv_scale,
+                                0.0..=5.0, defaults.warp_uv_scale,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Warp Strength",
+                                &mut self.draft_settings.warp_strength,
+                                0.0..=5.0, defaults.warp_strength,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Warp Time Scale",
+                                &mut self.draft_settings.warp_time_scale,
+                                0.0..=1.0, defaults.warp_time_scale,
+                                self.settings_changed, self.preset_modified
+                            );
+
+                            ui.separator();
+                            ui.label("Hash");
+                            settings_slider_ui!(
+                                ui, "Hash Scale",
+                                &mut self.draft_settings.hash_scale,
+                                0.01..=1.0, defaults.hash_scale,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Hash Dot",
+                                &mut self.draft_settings.hash_dot,
+                                1.0..=100.0, defaults.hash_dot,
+                                self.settings_changed, self.preset_modified
                             );
                         });
                     ui.separator();
@@ -423,223 +559,399 @@ impl State {
                         .default_open(false)
                         .show(ui, |ui| {
                             settings_slider_ui!(
-                                ui,
-                                "Caustic Scale",
+                                ui, "Caustic Scale",
                                 &mut self.draft_settings.caustic_scale,
-                                0.0..=1.0,
-                                defaults.caustic_scale,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=1.0, defaults.caustic_scale,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Caustic Size",
+                                ui, "Caustic Size",
                                 &mut self.draft_settings.caustic_size,
-                                0.1..=10.0,
-                                defaults.caustic_size,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.1..=10.0, defaults.caustic_size,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Caustic Speed",
+                                ui, "Caustic Speed",
                                 &mut self.draft_settings.caustic_speed,
-                                0.0..=2.0,
-                                defaults.caustic_speed,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=2.0, defaults.caustic_speed,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Caustic Intensity",
+                                ui, "Caustic Intensity",
                                 &mut self.draft_settings.caustic_intensity,
-                                0.0..=10.0,
-                                defaults.caustic_intensity,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=10.0, defaults.caustic_intensity,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_number_ui!(
-                                ui,
-                                "Caustic Octaves",
+                                ui, "Caustic Octaves",
                                 &mut self.draft_settings.caustic_octaves,
                                 defaults.caustic_octaves,
-                                self.settings_changed,
-                                self.preset_modified
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Caustic Depth",
+                                ui, "Caustic Depth",
                                 &mut self.draft_settings.caustic_depth,
-                                0.0..=20.0,
-                                defaults.caustic_depth,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=20.0, defaults.caustic_depth,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_ui!(
-                                ui,
-                                "Caustic Max Distance",
+                                ui, "Caustic Max Distance",
                                 &mut self.draft_settings.caustic_max_distance,
-                                100.0..=2000.0,
-                                defaults.caustic_max_distance,
-                                self.settings_changed,
-                                self.preset_modified
+                                100.0..=2000.0, defaults.caustic_max_distance,
+                                self.settings_changed, self.preset_modified
                             );
-
+                            settings_slider_ui!(
+                                ui, "Caustic Aberration",
+                                &mut self.draft_settings.caustic_aberration,
+                                0.0..=0.1, defaults.caustic_aberration,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Caustic Smooth Low",
+                                &mut self.draft_settings.caustic_smooth_low,
+                                0.0..=1.0, defaults.caustic_smooth_low,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Caustic Smooth High",
+                                &mut self.draft_settings.caustic_smooth_high,
+                                0.0..=2.0, defaults.caustic_smooth_high,
+                                self.settings_changed, self.preset_modified
+                            );
                             settings_slider_vec4_ui!(
-                                ui,
-                                "Caustic Color Tint",
+                                ui, "Caustic Color Tint",
                                 &mut self.draft_settings.caustic_color_tint,
-                                0.0..=2.0,
-                                defaults.caustic_color_tint,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=2.0, defaults.caustic_color_tint,
+                                self.settings_changed, self.preset_modified
                             );
                         });
                     ui.separator();
 
-                    egui::CollapsingHeader::new("Water & Sun Colors")
+                    egui::CollapsingHeader::new("Water Colors & SSS")
                         .default_open(false)
                         .show(ui, |ui| {
                             settings_slider_vec4_ui!(
-                                ui,
-                                "Deep Ocean Color",
+                                ui, "Deep Ocean Color",
                                 &mut self.draft_settings.deep_color,
-                                0.0..=1.0,
-                                defaults.deep_color,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=1.0, defaults.deep_color,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_vec4_ui!(
-                                ui,
-                                "Shallow Ocean Color",
+                                ui, "Shallow Ocean Color",
                                 &mut self.draft_settings.shallow_color,
-                                0.0..=1.0,
-                                defaults.shallow_color,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=1.0, defaults.shallow_color,
+                                self.settings_changed, self.preset_modified
                             );
-
                             settings_slider_vec4_ui!(
-                                ui,
-                                "SSS Color",
+                                ui, "SSS Color",
                                 &mut self.draft_settings.sss_color,
-                                0.0..=1.0,
-                                defaults.sss_color,
-                                self.settings_changed,
-                                self.preset_modified
+                                0.0..=1.0, defaults.sss_color,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_vec4_ui!(
+                                ui, "Sun Color",
+                                &mut self.draft_settings.sun_color,
+                                0.0..=1.0, defaults.sun_color,
+                                self.settings_changed, self.preset_modified
                             );
 
-                            settings_slider_vec4_ui!(
-                                ui,
-                                "Sun Color",
-                                &mut self.draft_settings.sun_color,
-                                0.0..=1.0,
-                                defaults.sun_color,
-                                self.settings_changed,
-                                self.preset_modified
+                            ui.separator();
+                            ui.label("SSS Parameters");
+                            settings_slider_ui!(
+                                ui, "SSS Min Height",
+                                &mut self.draft_settings.sss_min_height,
+                                -5.0..=0.0, defaults.sss_min_height,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "SSS Max Height",
+                                &mut self.draft_settings.sss_max_height,
+                                0.0..=10.0, defaults.sss_max_height,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "SSS Power",
+                                &mut self.draft_settings.sss_power,
+                                0.1..=32.0, defaults.sss_power,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "SSS Intensity",
+                                &mut self.draft_settings.sss_intensity,
+                                0.0..=5.0, defaults.sss_intensity,
+                                self.settings_changed, self.preset_modified
                             );
                         });
+                    ui.separator();
 
-                        ui.separator();
-                        
-                        egui::CollapsingHeader::new("Sky & Atmosphere")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                ui.label("Simulated Sky");
+                    egui::CollapsingHeader::new("Sky Colors & Sunset")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.label("Sky Gradient");
+                            settings_slider_vec4_ui!(
+                                ui, "Day Zenith",
+                                &mut self.draft_settings.sky_color_day_zenith,
+                                0.0..=1.0, defaults.sky_color_day_zenith,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_vec4_ui!(
+                                ui, "Day Horizon",
+                                &mut self.draft_settings.sky_color_day_horizon,
+                                0.0..=1.0, defaults.sky_color_day_horizon,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_vec4_ui!(
+                                ui, "Night Zenith",
+                                &mut self.draft_settings.sky_color_night_zenith,
+                                0.0..=1.0, defaults.sky_color_night_zenith,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_vec4_ui!(
+                                ui, "Night Horizon",
+                                &mut self.draft_settings.sky_color_night_horizon,
+                                0.0..=1.0, defaults.sky_color_night_horizon,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Sky Zenith Gradient Exp",
+                                &mut self.draft_settings.sky_zenith_gradient_exp,
+                                0.1..=5.0, defaults.sky_zenith_gradient_exp,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Horizon Glow Mult",
+                                &mut self.draft_settings.horizon_glow_mult,
+                                0.0..=5.0, defaults.horizon_glow_mult,
+                                self.settings_changed, self.preset_modified
+                            );
 
-                                
-                                settings_slider_vec4_ui!(
-                                    ui, "Day Zenith", &mut self.draft_settings.sky_color_day_zenith, 0.0..=1.0, defaults.sky_color_day_zenith, self.settings_changed, self.preset_modified
-                                );
-                                settings_slider_vec4_ui!(
-                                    ui, "Day Horizon", &mut self.draft_settings.sky_color_day_horizon, 0.0..=1.0, defaults.sky_color_day_horizon, self.settings_changed, self.preset_modified
-                                );
-                                settings_slider_vec4_ui!(
-                                    ui, "Night Zenith", &mut self.draft_settings.sky_color_night_zenith, 0.0..=1.0, defaults.sky_color_night_zenith, self.settings_changed, self.preset_modified
-                                );
-                                settings_slider_vec4_ui!(
-                                    ui, "Night Horizon", &mut self.draft_settings.sky_color_night_horizon, 0.0..=1.0, defaults.sky_color_night_horizon, self.settings_changed, self.preset_modified
-                                );
-                                
-                                ui.separator();
-                                ui.label("Sunset");
-                                settings_slider_vec4_ui!(
-                                    ui, "Sunset Orange", &mut self.draft_settings.sky_color_sunset_orange, 0.0..=1.0, defaults.sky_color_sunset_orange, self.settings_changed, self.preset_modified
-                                );
-                                settings_slider_vec4_ui!(
-                                    ui, "Sunset Pink", &mut self.draft_settings.sky_color_sunset_pink, 0.0..=1.0, defaults.sky_color_sunset_pink, self.settings_changed, self.preset_modified
-                                );
-                                 settings_slider_vec4_ui!(
-                                    ui, "Horizon Glow", &mut self.draft_settings.sky_color_horizon_glow, 0.0..=1.0, defaults.sky_color_horizon_glow, self.settings_changed, self.preset_modified
-                                );
+                            ui.separator();
+                            ui.label("Sunset");
+                            settings_slider_vec4_ui!(
+                                ui, "Sunset Orange",
+                                &mut self.draft_settings.sky_color_sunset_orange,
+                                0.0..=1.0, defaults.sky_color_sunset_orange,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_vec4_ui!(
+                                ui, "Sunset Pink",
+                                &mut self.draft_settings.sky_color_sunset_pink,
+                                0.0..=1.0, defaults.sky_color_sunset_pink,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_vec4_ui!(
+                                ui, "Horizon Glow",
+                                &mut self.draft_settings.sky_color_horizon_glow,
+                                0.0..=1.0, defaults.sky_color_horizon_glow,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_vec3_ui!(
+                                ui, "Sunset Scatter Color",
+                                &mut self.draft_settings.sunset_scatter_color,
+                                0.0..=2.0, defaults.sunset_scatter_color,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Sunset Scatter Intensity",
+                                &mut self.draft_settings.sunset_scatter_intensity,
+                                0.0..=2.0, defaults.sunset_scatter_intensity,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Sunset Orange Weight",
+                                &mut self.draft_settings.sunset_orange_weight,
+                                0.0..=1.0, defaults.sunset_orange_weight,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Sunset Intensity",
+                                &mut self.draft_settings.sunset_intensity,
+                                0.0..=10.0, defaults.sunset_intensity,
+                                self.settings_changed, self.preset_modified
+                            );
+                        });
+                    ui.separator();
 
-                                ui.separator();
-                                ui.label("Celestial Bodies");
-                                settings_slider_ui!(
-                                    ui, "Sun Offset Z", &mut self.draft_settings.sun_offset_z, -1.0..=1.0, defaults.sun_offset_z, self.settings_changed, self.preset_modified
-                                );
-                                 settings_slider_ui!(
-                                    ui, "Sun Halo Power", &mut self.draft_settings.sun_halo_power, 1.0..=1000.0, defaults.sun_halo_power, self.settings_changed, self.preset_modified
-                                );
-                                
-                                settings_slider_vec4_ui!(
-                                    ui, "Moon Lit Color", &mut self.draft_settings.moon_color_lit, 0.0..=1.0, defaults.moon_color_lit, self.settings_changed, self.preset_modified
-                                );
-                                settings_slider_vec4_ui!(
-                                    ui, "Moon Dark Color", &mut self.draft_settings.moon_color_dark, 0.0..=1.0, defaults.moon_color_dark, self.settings_changed, self.preset_modified
-                                );
-                                
-                                // Moon Vec3 handling via slider group manually
-                                ui.label("Moon Phase Offset");
-                                ui.horizontal(|ui| {
-                                    if ui.add(egui::Slider::new(&mut self.draft_settings.moon_phase_offset[0], -1.0..=1.0).text("X")).changed() { self.settings_changed = true; self.preset_modified = true; }
-                                    if ui.add(egui::Slider::new(&mut self.draft_settings.moon_phase_offset[1], -1.0..=1.0).text("Y")).changed() { self.settings_changed = true; self.preset_modified = true; }
-                                    if ui.add(egui::Slider::new(&mut self.draft_settings.moon_phase_offset[2], -1.0..=1.0).text("Z")).changed() { self.settings_changed = true; self.preset_modified = true; }
-                                });
+                    egui::CollapsingHeader::new("Sun & Moon")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.label("Sun");
+                            settings_slider_ui!(
+                                ui, "Sun Offset Z",
+                                &mut self.draft_settings.sun_offset_z,
+                                -1.0..=1.0, defaults.sun_offset_z,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Sun Size Inner",
+                                &mut self.draft_settings.sun_size_inner,
+                                0.999..=1.0, defaults.sun_size_inner,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Sun Size Outer",
+                                &mut self.draft_settings.sun_size_outer,
+                                0.999..=1.0, defaults.sun_size_outer,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Sun Halo Power",
+                                &mut self.draft_settings.sun_halo_power,
+                                1.0..=1000.0, defaults.sun_halo_power,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Sun Halo Intensity",
+                                &mut self.draft_settings.sun_halo_intensity,
+                                0.0..=1.0, defaults.sun_halo_intensity,
+                                self.settings_changed, self.preset_modified
+                            );
 
-                                settings_slider_ui!(
-                                    ui, "Moon Radius", &mut self.draft_settings.moon_radius, 0.001..=0.1, defaults.moon_radius, self.settings_changed, self.preset_modified
-                                );
-                                settings_slider_ui!(
-                                    ui, "Moon Distance", &mut self.draft_settings.moon_dist, 10.0..=500.0, defaults.moon_dist, self.settings_changed, self.preset_modified
-                                );
-                                settings_slider_ui!(
-                                    ui, "Moon Craters", &mut self.draft_settings.moon_crater_scale, 0.1..=10.0, defaults.moon_crater_scale, self.settings_changed, self.preset_modified
-                                );
+                            ui.separator();
+                            ui.label("Moon");
+                            settings_slider_vec4_ui!(
+                                ui, "Moon Lit Color",
+                                &mut self.draft_settings.moon_color_lit,
+                                0.0..=1.0, defaults.moon_color_lit,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_vec4_ui!(
+                                ui, "Moon Dark Color",
+                                &mut self.draft_settings.moon_color_dark,
+                                0.0..=1.0, defaults.moon_color_dark,
+                                self.settings_changed, self.preset_modified
+                            );
+                            ui.label("Moon Phase Offset");
+                            ui.horizontal(|ui| {
+                                if ui.add(egui::Slider::new(&mut self.draft_settings.moon_phase_offset[0], -1.0..=1.0).text("X")).changed() { self.settings_changed = true; self.preset_modified = true; }
+                                if ui.add(egui::Slider::new(&mut self.draft_settings.moon_phase_offset[1], -1.0..=1.0).text("Y")).changed() { self.settings_changed = true; self.preset_modified = true; }
+                                if ui.add(egui::Slider::new(&mut self.draft_settings.moon_phase_offset[2], -1.0..=1.0).text("Z")).changed() { self.settings_changed = true; self.preset_modified = true; }
+                            });
+                            settings_slider_ui!(
+                                ui, "Moon Radius",
+                                &mut self.draft_settings.moon_radius,
+                                0.001..=0.1, defaults.moon_radius,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Moon Distance",
+                                &mut self.draft_settings.moon_dist,
+                                10.0..=500.0, defaults.moon_dist,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Moon Craters",
+                                &mut self.draft_settings.moon_crater_scale,
+                                0.1..=10.0, defaults.moon_crater_scale,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Moon Halo Power",
+                                &mut self.draft_settings.moon_halo_power,
+                                1.0..=1000.0, defaults.moon_halo_power,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Moon Halo Intensity",
+                                &mut self.draft_settings.moon_halo_intensity,
+                                0.0..=1.0, defaults.moon_halo_intensity,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Moon Light Dim",
+                                &mut self.draft_settings.moon_light_dim,
+                                0.0..=1.0, defaults.moon_light_dim,
+                                self.settings_changed, self.preset_modified
+                            );
+                        });
+                    ui.separator();
 
-                                ui.separator();
-                                ui.label("Stars & Clouds");
-                                 settings_slider_ui!(
-                                    ui, "Star Count", &mut self.draft_settings.star_count, 100.0..=10000.0, defaults.star_count, self.settings_changed, self.preset_modified
-                                );
-                                settings_slider_ui!(
-                                    ui, "Star Threshold", &mut self.draft_settings.star_threshold, 0.9..=0.9999, defaults.star_threshold, self.settings_changed, self.preset_modified
-                                );
-                                
-                                 settings_slider_vec4_ui!(
-                                    ui, "Cloud Color Day", &mut self.draft_settings.cloud_color_day, 0.0..=1.0, defaults.cloud_color_day, self.settings_changed, self.preset_modified
-                                );
-                                 settings_slider_vec4_ui!(
-                                    ui, "Cloud Color Night", &mut self.draft_settings.cloud_color_night, 0.0..=1.0, defaults.cloud_color_night, self.settings_changed, self.preset_modified
-                                );
-                                 settings_slider_ui!(
-                                    ui, "Cloud Speed", &mut self.draft_settings.cloud_speed, 0.0..=0.5, defaults.cloud_speed, self.settings_changed, self.preset_modified
-                                );
-                                 settings_slider_ui!(
-                                    ui, "Cloud Density Low", &mut self.draft_settings.cloud_density_low, 0.0..=1.0, defaults.cloud_density_low, self.settings_changed, self.preset_modified
-                                );
-                                 settings_slider_ui!(
-                                    ui, "Cloud Density High", &mut self.draft_settings.cloud_density_high, 0.0..=1.0, defaults.cloud_density_high, self.settings_changed, self.preset_modified
-                                );
-                    });
+                    egui::CollapsingHeader::new("Stars & Aurora")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.label("Stars");
+                            settings_slider_ui!(
+                                ui, "Star Count",
+                                &mut self.draft_settings.star_count,
+                                100.0..=10000.0, defaults.star_count,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Star Threshold",
+                                &mut self.draft_settings.star_threshold,
+                                0.9..=0.9999, defaults.star_threshold,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Star Size",
+                                &mut self.draft_settings.star_size,
+                                1.0..=100.0, defaults.star_size,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Star Blink Speed",
+                                &mut self.draft_settings.star_blink_speed,
+                                0.0..=10.0, defaults.star_blink_speed,
+                                self.settings_changed, self.preset_modified
+                            );
 
+                            ui.separator();
+                            ui.label("Aurora");
+                            settings_slider_ui!(
+                                ui, "Aurora Strength",
+                                &mut self.draft_settings.aurora_strength,
+                                0.0..=5.0, defaults.aurora_strength,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Aurora Brightness",
+                                &mut self.draft_settings.aurora_brightness,
+                                0.0..=10.0, defaults.aurora_brightness,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Aurora Y Threshold",
+                                &mut self.draft_settings.aurora_y_threshold,
+                                0.0..=1.0, defaults.aurora_y_threshold,
+                                self.settings_changed, self.preset_modified
+                            );
+                        });
+                    ui.separator();
+
+                    egui::CollapsingHeader::new("Clouds")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            settings_slider_vec4_ui!(
+                                ui, "Cloud Color Day",
+                                &mut self.draft_settings.cloud_color_day,
+                                0.0..=1.0, defaults.cloud_color_day,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_vec4_ui!(
+                                ui, "Cloud Color Night",
+                                &mut self.draft_settings.cloud_color_night,
+                                0.0..=1.0, defaults.cloud_color_night,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Cloud Speed",
+                                &mut self.draft_settings.cloud_speed,
+                                0.0..=0.5, defaults.cloud_speed,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Cloud Density Low",
+                                &mut self.draft_settings.cloud_density_low,
+                                0.0..=1.0, defaults.cloud_density_low,
+                                self.settings_changed, self.preset_modified
+                            );
+                            settings_slider_ui!(
+                                ui, "Cloud Density High",
+                                &mut self.draft_settings.cloud_density_high,
+                                0.0..=1.0, defaults.cloud_density_high,
+                                self.settings_changed, self.preset_modified
+                            );
+                        });
                     ui.separator();
 
                     egui::CollapsingHeader::new("Load Preset")
@@ -666,25 +978,19 @@ impl State {
                                 if ui.button("Load").clicked() {
                                     let name = self.preset_name_to_load.trim();
                                     if !name.is_empty() {
-                                        let preset =
-                                            OceanPreset::load_preset(name, Path::new("presets/"));
-
+                                        let preset = OceanPreset::load_preset(name, Path::new("presets/"));
                                         let seed = self.ocean_settings_uniform.ocean_seed;
-
                                         self.current_ocean_preset = preset.clone();
-                                        self.draft_settings =
-                                            OceanSettingsBuilder::from_preset(&preset).build();
+                                        self.draft_settings = OceanSettingsBuilder::from_preset(&preset).build();
                                         self.draft_settings.ocean_seed = seed;
-
                                         self.settings_changed = true;
                                         self.preset_modified = false;
                                     }
                                 }
                             });
                         });
-
                     ui.separator();
-                    
+
                     egui::CollapsingHeader::new("Update Current Preset")
                         .default_open(false)
                         .show(ui, |ui| {
@@ -692,7 +998,7 @@ impl State {
                                 "Save Current Draft to Preset: {}",
                                 self.current_ocean_preset.preset_name
                             );
-                            
+
                             ui.add_enabled_ui(self.preset_modified, |ui| {
                                 if ui.button(save_button_text).clicked() {
                                     OceanPreset::modify_preset(
@@ -701,26 +1007,21 @@ impl State {
                                         self.current_ocean_preset.clone(),
                                         self.draft_settings,
                                     );
-                                    
                                     let name = self.current_ocean_preset.preset_name.trim();
                                     if !name.is_empty() {
-                                        let preset = OceanPreset::load_preset(
-                                            name,
-                                            Path::new("presets/")
-                                        );
+                                        let preset = OceanPreset::load_preset(name, Path::new("presets/"));
                                         self.current_ocean_preset = preset;
                                         self.preset_modified = false;
                                     }
                                 }
                             });
-                            
+
                             if !self.preset_modified {
                                 ui.small("Preset is unmodified. Edit a setting to enable save.");
                             } else {
                                 ui.small("Save the modified settings to overwrite the current preset file.");
                             }
                         });
-
                     ui.separator();
 
                     egui::CollapsingHeader::new("Create New Preset")
@@ -731,12 +1032,10 @@ impl State {
                                     ui.label("Name");
                                     ui.text_edit_singleline(&mut self.preset_name_to_create);
                                 });
-
                                 ui.horizontal(|ui| {
                                     ui.label("Author");
                                     ui.text_edit_singleline(&mut self.preset_author_to_create);
                                 });
-
                                 ui.horizontal(|ui| {
                                     ui.label("Description");
                                     ui.text_edit_singleline(&mut self.preset_description_to_create);
@@ -755,7 +1054,6 @@ impl State {
                                             description,
                                             self.draft_settings,
                                         );
-
                                         self.available_presets =
                                             OceanPreset::get_preset_list(Path::new("presets/"))
                                                 .unwrap_or_default();
@@ -773,9 +1071,14 @@ impl State {
                         .clicked()
                     {
                         let old_sub = self.ocean_settings_uniform.fft_subdivisions;
+                        let old_cascade_count = self.ocean_settings_uniform.cascade_count;
+                        let old_cascade_data = self.ocean_settings_uniform.cascade_data;
                         self.ocean_settings_uniform = self.draft_settings;
 
-                        if self.ocean_settings_uniform.fft_subdivisions != old_sub {
+                        let has_cascades_changed = self.ocean_settings_uniform.cascade_count != old_cascade_count || self.ocean_settings_uniform.cascade_data != old_cascade_data;
+                        let has_sub_changed = self.ocean_settings_uniform.fft_subdivisions != old_sub;
+
+                        if has_cascades_changed || has_sub_changed {
                             self.reinit_fft_resources();
                         }
 
@@ -823,11 +1126,9 @@ impl State {
         let datetime: chrono::DateTime<Local> = system_time.into();
         let formatted_time = datetime.format("%Y-%m-%d %H:%M:%S.%3f UTC%Z").to_string();
 
-        // [(bearing + 2pi) % 2pi] * [180/pi]
         let bearing_360 = ((self.camera.bearing.0 + std::f32::consts::TAU) % std::f32::consts::TAU)
             * 180.0
             / std::f32::consts::PI;
-        // [-pi/2 < pitch < pi/2] * [180/pi]
         let pitch = self
             .camera
             .pitch
@@ -842,7 +1143,6 @@ impl State {
             self.ocean_settings_uniform.wind_vector[0], self.ocean_settings_uniform.wind_vector[1]
         );
         let tri_count = self.num_indices / 3;
-        // Data collected by me, formatted by AI
         format!(
             "Ocean Simulation v{VERSION}\n\
             Stage: {DESC}\n\

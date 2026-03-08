@@ -1,4 +1,5 @@
 use crate::settings::OceanSettingsUniform;
+use crate::state::CascadeResources;
 use crate::state::FFTUniform;
 use crate::state::State;
 use crate::texture::Texture;
@@ -65,10 +66,301 @@ impl State {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
+    pub fn create_cascade_resource(
+        &self,
+        cascade_index: usize,
+        twiddle_factor_buffer: &wgpu::Buffer,
+        total_size: u64,
+    ) -> CascadeResources {
+        let n = self.ocean_settings_uniform.fft_subdivisions;
+        let pass_num = self.ocean_settings_uniform.pass_num;
+
+        let initial_data_array = InitialData::generate_data(
+            self.ocean_settings_uniform.cascade_data[cascade_index][0],
+            n,
+            self.ocean_settings_uniform.wind_vector,
+            self.ocean_settings_uniform.l_small,
+            self.ocean_settings_uniform.cascade_data[cascade_index][1],
+            self.ocean_settings_uniform.max_w,
+            self.ocean_settings_uniform.ocean_seed,
+        );
+
+        let initial_data_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!("initial_data_buffer_{cascade_index}")),
+                    contents: bytemuck::cast_slice(&initial_data_array),
+                    usage: wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_SRC
+                        | wgpu::BufferUsages::COPY_DST,
+                });
+
+        let initial_data_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.initial_data_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: initial_data_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: twiddle_factor_buffer.as_entire_binding(),
+                },
+            ],
+            label: Some(&format!("initial_data_group_{cascade_index}")),
+        });
+
+        let texture_ping_h_dx = Texture::create_storage_texture(
+            &self.device,
+            n,
+            &format!("fft_texture_ping_h_dx_{cascade_index}"),
+        );
+        let texture_pong_h_dx = Texture::create_storage_texture(
+            &self.device,
+            n,
+            &format!("fft_texture_pong_h_dx_{cascade_index}"),
+        );
+        let texture_ping_dz = Texture::create_storage_texture(
+            &self.device,
+            n,
+            &format!("fft_texture_ping_dz_{cascade_index}"),
+        );
+        let texture_pong_dz = Texture::create_storage_texture(
+            &self.device,
+            n,
+            &format!("fft_texture_pong_dz_{cascade_index}"),
+        );
+
+        let config_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fft_config_buffer"),
+            size: total_size,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        for stage in 0..pass_num {
+            for is_vertical in 0..2 {
+                let i = stage * 2 + is_vertical;
+                let uniform = FFTUniform {
+                    stage,
+                    is_vertical,
+                    cascade_index: cascade_index as u32,
+                    _pad: 0,
+                };
+                let offset = i as u64 * self.step_size;
+                self.queue
+                    .write_buffer(&config_buffer, offset, bytemuck::cast_slice(&[uniform]));
+            }
+        }
+
+        let (bind_groups_ping, bind_groups_pong) = Self::populate_fft_bind_groups(
+            &self.device,
+            &self.ocean_settings_uniform,
+            &self.fft_render_group_layout,
+            &config_buffer,
+            &texture_ping_h_dx,
+            &texture_pong_h_dx,
+            &texture_ping_dz,
+            &texture_pong_dz,
+            self.fft_uniform_size,
+            self.step_size,
+        );
+
+        let height_field_render_bind_group_ping =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("height_field_bind_group_ping_{cascade_index}")),
+                layout: &self.height_field_render_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture_ping_h_dx.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&texture_ping_dz.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&texture_ping_h_dx.sampler),
+                    },
+                ],
+            });
+
+        let height_field_render_bind_group_pong =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("height_field_bind_group_pong_{cascade_index}")),
+                layout: &self.height_field_render_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture_pong_h_dx.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&texture_pong_dz.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&texture_pong_h_dx.sampler),
+                    },
+                ],
+            });
+
+        let height_field_compute_bind_group_ping =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!(
+                    "height_field_compute_bind_group_ping_{cascade_index}"
+                )),
+                layout: &self.height_field_compute_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture_ping_h_dx.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&texture_ping_dz.view),
+                    },
+                ],
+            });
+
+        let height_field_compute_bind_group_pong =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!(
+                    "height_field_compute_bind_group_pong_{cascade_index}"
+                )),
+                layout: &self.height_field_compute_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture_pong_h_dx.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&texture_pong_dz.view),
+                    },
+                ],
+            });
+
+        let combined_bind_group_ping = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.combined_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture_ping_h_dx.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&texture_ping_dz.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.combined_texture_ping_h_dx.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.combined_texture_ping_dz.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.combined_texture_pong_h_dx.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.combined_texture_pong_dz.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(
+                        &self.combined_texture_ping_h_dx.sampler,
+                    ),
+                },
+            ],
+            label: Some(&format!("combined_bind_group_ping_{cascade_index}")),
+        });
+
+        let combined_bind_group_accumulate =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.combined_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture_ping_h_dx.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&texture_ping_dz.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.combined_texture_pong_h_dx.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.combined_texture_pong_dz.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.combined_texture_ping_h_dx.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.combined_texture_ping_dz.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::Sampler(
+                            &self.combined_texture_ping_h_dx.sampler,
+                        ),
+                    },
+                ],
+                label: Some(&format!("combined_bind_group_accumulate_{cascade_index}")),
+            });
+
+        CascadeResources {
+            config_buffer,
+            size: self.ocean_settings_uniform.cascade_data[cascade_index][0],
+            output_is_ping: false,
+            bind_groups_ping,
+            bind_groups_pong,
+            height_field_render_bind_group_ping,
+            height_field_render_bind_group_pong,
+            height_field_compute_bind_group_ping,
+            height_field_compute_bind_group_pong,
+            texture_ping_h_dx,
+            texture_pong_h_dx,
+            texture_ping_dz,
+            texture_pong_dz,
+            initial_data_group,
+            initial_data_buffer,
+            combined_bind_group_ping,
+            combined_bind_group_accumulate,
+        }
+    }
+
     pub fn reinit_fft_resources(&mut self) {
         let n = self.ocean_settings_uniform.fft_subdivisions;
         let pass_num = self.ocean_settings_uniform.pass_num;
         let total_size = self.step_size * pass_num as u64 * 2;
+
+        let new_count = self.ocean_settings_uniform.cascade_count as usize;
+        let old_count = self.cascades.len();
 
         // constant across cascades
         let twiddle_array = InitialData::generate_twiddle_factors(n);
@@ -274,7 +566,119 @@ impl State {
                         },
                     ],
                 });
+
+            cascade.combined_bind_group_ping =
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some(&format!("combined_bind_group_ping_{cascade_index}")),
+                    layout: &self.combined_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &cascade.texture_ping_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(
+                                &cascade.texture_ping_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_ping_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_ping_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_pong_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_pong_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 6,
+                            resource: wgpu::BindingResource::Sampler(
+                                &self.combined_texture_ping_h_dx.sampler,
+                            ),
+                        },
+                    ],
+                });
+
+            cascade.combined_bind_group_accumulate =
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some(&format!("combined_bind_group_accumulate_{cascade_index}")),
+                    layout: &self.combined_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &cascade.texture_ping_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(
+                                &cascade.texture_ping_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_pong_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_pong_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_ping_h_dx.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.combined_texture_ping_dz.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 6,
+                            resource: wgpu::BindingResource::Sampler(
+                                &self.combined_texture_ping_h_dx.sampler,
+                            ),
+                        },
+                    ],
+                });
         }
+
+        if new_count < old_count {
+            self.cascades.truncate(new_count);
+        } else {
+            for cascade_index in old_count..new_count {
+                let cascade =
+                    self.create_cascade_resource(cascade_index, &twiddle_buffer, total_size);
+                self.cascades.push(cascade);
+            }
+        }
+
+        self.combined_output_is_ping = new_count % 2 == 1;
     }
 
     pub fn populate_fft_bind_groups(
