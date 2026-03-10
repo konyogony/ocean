@@ -194,7 +194,7 @@ impl State {
 
         // Ocean settings setup
         let ocean_seed = rand::rng().random::<u32>();
-        let current_ocean_preset = OceanPreset::load_preset("test", Path::new("presets/"));
+        let current_ocean_preset = OceanPreset::load_preset("balanced", Path::new("presets/"));
         let ocean_settings_uniform = OceanSettingsBuilder::from_preset(&current_ocean_preset)
             .ocean_seed(ocean_seed)
             .build();

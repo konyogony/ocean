@@ -276,9 +276,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         micro_normal.z * B
     );
     
-    let normal = normalize(mix(normal_geometry, micro_ws, detail_fade * ocean_settings.micro_normal_strength * ocean_settings.micro_strength_mod));
+    let smooth_factor = smoothstep(100.0, ocean_settings.zfar, dist);
+    let normal_micro = normalize(mix(normal_geometry, micro_ws, detail_fade * ocean_settings.micro_normal_strength * ocean_settings.micro_strength_mod));
+    let normal = normalize(mix(normal_micro, vec3(0.0, 1.0, 0.0), smooth_factor));
     let detailed_foam = advected_foam * (micro_noise * 0.6 + 0.4);
     let foam_factor = clamp(detailed_foam * ocean_settings.foam_scale, 0.0, 1.0);
+    let dist_roughness = smooth_factor * 0.2; 
+    let rougness_dynamic = mix(ocean_settings.roughness, ocean_settings.foam_roughness, foam_factor) + dist_roughness;
+    let alpha = rougness_dynamic * rougness_dynamic;
 
     let view_dir = normalize(camera.camera_pos - in.world_pos);
     let half_dir = normalize(light_dir + view_dir);
@@ -294,7 +299,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let p_back = pow(trans_dot, ocean_settings.sss_power);
     let sss_thickness_mask = 1.0 - smoothstep(ocean_settings.sss_min_height, ocean_settings.sss_max_height, in.height);
     let sss_strength = p_back * sss_thickness_mask * ocean_settings.sss_distortion_scale * ocean_settings.sss_intensity;
-    let sss = mix(ocean_settings.sss_color.rgb, light_color, p_back) * sss_strength;
+    let wave_peak_sss = smoothstep(0.1, 0.8, jacobian) * ocean_settings.sss_intensity;
+    let sss = mix(ocean_settings.sss_color.rgb, light_color, p_back) * (sss_strength + (wave_peak_sss * 0.2));
 
     let fresnel_sky = fresnel_func(n_dot_view, ocean_settings.f_0);
     let fresnel_spec = fresnel_func(view_dot_half, ocean_settings.f_0);
@@ -303,7 +309,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let jacobian_mask = 1.0 - clamp(jacobian, 0.0, 1.0);
     let height_mask = smoothstep(-0.2, 0.6, in.height);
 
-
     let turbidity = smoothstep(0.1, 0.5, jacobian);
     let base_mix = smoothstep(-2.0, 4.0, in.height);
     var water_base = mix(ocean_settings.deep_color.rgb, ocean_settings.shallow_color.rgb, base_mix);
@@ -311,8 +316,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     water_base *= max(intensity, ocean_settings.night_water_floor);
 
     let reflection_dampener = 1.0 - smoothstep(ocean_settings.reflection_min, ocean_settings.reflection_max, jacobian);
-    let rougness_dynamic = mix(ocean_settings.roughness, ocean_settings.foam_roughness, foam_factor);
-    let alpha = rougness_dynamic * rougness_dynamic;
     let specular_val = cook_torrance(n_dot_light, n_dot_view, n_dot_half, alpha, fresnel_spec);
     let specular = light_color * specular_val * ocean_settings.specular_scale * reflection_dampener * (1.0-foam_factor);
 
@@ -338,8 +341,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     color += caustic_color * ocean_settings.sss_color.rgb * ocean_settings.caustic_sss_blend;
     
     let sky_reflection = get_sky_color(reflect_dir) * ocean_settings.reflection_scale;
-    let view_angle_factor = pow(max(1.0 - abs(view_dir.y), 0.0), 2.0);
-    let fresnel_limited = fresnel_sky * ocean_settings.fresnel_sky_cap * view_angle_factor;
+    let fresnel_reflection = fresnel_func(n_dot_view, ocean_settings.f_0);
+    let fresnel_limited = mix(fresnel_reflection * ocean_settings.fresnel_sky_cap, 0.6, smooth_factor * 0.5);
     color = mix(color, sky_reflection, clamp(fresnel_limited, 0.0, ocean_settings.fresnel_sky_cap));
     color += ambient * ocean_settings.ambient_scale * (0.5 + 0.5 * n_dot_light);
     color += specular;
