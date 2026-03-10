@@ -76,10 +76,13 @@ impl ApplicationHandler<State> for App {
                 state.update();
                 match state.render() {
                     Ok(_) => {}
-                    Err(e) => {
-                        log::error!("Unable to render {e}");
+                    Err(wgpu::SurfaceError::Timeout) => {} // skip frame, GPU busy
+                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                         let size = state.window.inner_size();
                         state.resize(size.width, size.height);
+                    }
+                    Err(e) => {
+                        log::error!("Unable to render {e}");
                     }
                 }
             }

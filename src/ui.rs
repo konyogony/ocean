@@ -171,7 +171,7 @@ impl State {
                     ui.separator();
 
                     egui::CollapsingHeader::new("Wave Parameters")
-                        .default_open(true)
+                        .default_open(false)
                         .show(ui, |ui| {
                             settings_slider_ui!(
                                 ui, "FFT Subdivisions (log2) (buggy)",

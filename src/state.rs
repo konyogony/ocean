@@ -43,7 +43,7 @@ pub struct CascadeResources {
     pub config_buffer: wgpu::Buffer,
     pub output_is_ping: bool,
     pub combined_bind_group_ping: wgpu::BindGroup,
-    pub combined_bind_group_accumulate: wgpu::BindGroup,
+    pub combined_bind_group_ping_accumulate: wgpu::BindGroup,
     pub combined_bind_group_pong: wgpu::BindGroup,
     pub combined_bind_group_pong_accumulate: wgpu::BindGroup,
 }
@@ -194,7 +194,7 @@ impl State {
 
         // Ocean settings setup
         let ocean_seed = rand::rng().random::<u32>();
-        let current_ocean_preset = OceanPreset::load_preset("default", Path::new("presets/"));
+        let current_ocean_preset = OceanPreset::load_preset("test", Path::new("presets/"));
         let ocean_settings_uniform = OceanSettingsBuilder::from_preset(&current_ocean_preset)
             .ocean_seed(ocean_seed)
             .build();
@@ -807,7 +807,7 @@ impl State {
                 label: Some(&format!("combined_bind_group_ping_{cascade_index}")),
             });
 
-            let combined_bind_group_accumulate =
+            let combined_bind_group_ping_accumulate =
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &combined_bind_group_layout,
                     entries: &[
@@ -850,7 +850,9 @@ impl State {
                             ),
                         },
                     ],
-                    label: Some(&format!("combined_bind_group_accumulate_{cascade_index}")),
+                    label: Some(&format!(
+                        "combined_bind_group_ping_accumulate_{cascade_index}"
+                    )),
                 });
 
             let combined_bind_group_pong = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -963,7 +965,7 @@ impl State {
                 initial_data_group,
                 initial_data_buffer,
                 combined_bind_group_ping,
-                combined_bind_group_accumulate,
+                combined_bind_group_ping_accumulate,
                 combined_bind_group_pong,
                 combined_bind_group_pong_accumulate,
             };

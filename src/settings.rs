@@ -123,6 +123,11 @@ pub struct OceanPreset {
     pub steepness_threshold_high: f32,
     pub y_displacement_weight: f32,
     pub wave_epsilon: f32,
+    pub wave_height_exp: f32,
+    pub wave_height_sharp: f32,
+    pub night_water_floor: f32,
+    pub fresnel_sky_cap: f32,
+    pub caustic_sss_blend: f32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -306,6 +311,11 @@ impl OceanPreset {
             steepness_threshold_high: builder.steepness_threshold_high,
             y_displacement_weight: builder.y_displacement_weight,
             wave_epsilon: builder.wave_epsilon,
+            wave_height_exp: builder.wave_height_exp,
+            wave_height_sharp: builder.wave_height_sharp,
+            night_water_floor: builder.night_water_floor,
+            fresnel_sky_cap: builder.fresnel_sky_cap,
+            caustic_sss_blend: builder.caustic_sss_blend,
         }
     }
 }
@@ -382,6 +392,7 @@ pub struct OceanSettingsUniform {
     pub caustic_octaves: u32,
     pub star_size: f32,
     pub aurora_strength: f32,
+    pub _pad_b_align: [f32; 3],
     pub pad_b: [u32; 4],
     pub cascade_data: [[f32; 4]; MAX_CASCADES],
     pub cascade_count: u32,
@@ -429,7 +440,12 @@ pub struct OceanSettingsUniform {
     pub steepness_threshold_high: f32,
     pub y_displacement_weight: f32,
     pub wave_epsilon: f32,
-    pub _pad_final: [f32; 20],
+    pub wave_height_exp: f32,
+    pub wave_height_sharp: f32,
+    pub night_water_floor: f32,
+    pub fresnel_sky_cap: f32,
+    pub caustic_sss_blend: f32,
+    pub _pad_final: [f32; 12],
 }
 
 pub struct OceanSettingsBuilder {
@@ -543,12 +559,17 @@ pub struct OceanSettingsBuilder {
     steepness_threshold_high: f32,
     y_displacement_weight: f32,
     wave_epsilon: f32,
+    wave_height_exp: f32,
+    wave_height_sharp: f32,
+    night_water_floor: f32,
+    fresnel_sky_cap: f32,
+    caustic_sss_blend: f32,
 }
 
 impl Default for OceanSettingsBuilder {
     fn default() -> Self {
         Self {
-            mesh_size: 1000.0,
+            mesh_size: 5000.0,
             mesh_subdivisions: 2048,
             fft_subdivisions: 256,
             time_scale: 1.5,
@@ -671,6 +692,11 @@ impl Default for OceanSettingsBuilder {
             steepness_threshold_high: 0.8,
             y_displacement_weight: 0.5,
             wave_epsilon: 0.0001,
+            wave_height_exp: 1.3,
+            wave_height_sharp: 0.15,
+            night_water_floor: 0.12,
+            fresnel_sky_cap: 0.4,
+            caustic_sss_blend: 0.6,
         }
     }
 }
@@ -834,6 +860,11 @@ impl OceanSettingsBuilder {
             steepness_threshold_high: preset.steepness_threshold_high,
             y_displacement_weight: preset.y_displacement_weight,
             wave_epsilon: preset.wave_epsilon,
+            caustic_sss_blend: preset.caustic_sss_blend,
+            fresnel_sky_cap: preset.fresnel_sky_cap,
+            wave_height_sharp: preset.wave_height_sharp,
+            wave_height_exp: preset.wave_height_exp,
+            night_water_floor: preset.night_water_floor,
             ..Default::default()
         }
     }
@@ -958,6 +989,11 @@ impl OceanSettingsBuilder {
             steepness_threshold_high: u.steepness_threshold_high,
             y_displacement_weight: u.y_displacement_weight,
             wave_epsilon: u.wave_epsilon,
+            wave_height_exp: u.wave_height_exp,
+            wave_height_sharp: u.wave_height_sharp,
+            night_water_floor: u.night_water_floor,
+            fresnel_sky_cap: u.fresnel_sky_cap,
+            caustic_sss_blend: u.caustic_sss_blend,
         }
     }
 
@@ -1039,7 +1075,8 @@ impl OceanSettingsBuilder {
             caustic_octaves: self.caustic_octaves,
             star_size: self.star_size,
             aurora_strength: self.aurora_strength,
-            pad_b: [0; 4],
+            _pad_b_align: [0.0f32; 3],
+            pad_b: [0u32; 4],
             cascade_data,
             cascade_count: count as u32,
             _pad_cascade: [0; 3],
@@ -1086,7 +1123,12 @@ impl OceanSettingsBuilder {
             steepness_threshold_high: self.steepness_threshold_high,
             y_displacement_weight: self.y_displacement_weight,
             wave_epsilon: self.wave_epsilon,
-            _pad_final: [0.0; 20],
+            wave_height_exp: self.wave_height_exp,
+            wave_height_sharp: self.wave_height_sharp,
+            night_water_floor: self.night_water_floor,
+            fresnel_sky_cap: self.fresnel_sky_cap,
+            caustic_sss_blend: self.caustic_sss_blend,
+            _pad_final: [0.0; 12],
         }
     }
 }

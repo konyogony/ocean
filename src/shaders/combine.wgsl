@@ -120,7 +120,12 @@ struct OceanSettingsUniform {
     steepness_threshold_high: f32,
     y_displacement_weight: f32,
     wave_epsilon: f32,
-    _pad_final: array<vec4<f32>, 4>,
+    wave_height_exp: f32,
+    wave_height_sharp: f32,
+    night_water_floor: f32,
+    fresnel_sky_cap: f32,
+    caustic_sss_blend: f32,
+    _pad_final: array<vec4<f32>, 3>,
 };
 
 @group(0) @binding(0) var<uniform> ocean_settings: OceanSettingsUniform;
