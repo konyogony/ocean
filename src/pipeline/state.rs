@@ -1,8 +1,3 @@
-use crate::camera::{Camera, CameraController, CameraUniform};
-use crate::settings::{OceanPreset, OceanSettingsBuilder, OceanSettingsUniform};
-use crate::skybox::Skybox;
-use crate::texture::{Texture, DEPTH_FORMAT, FFT_TEXTURE_FORMAT};
-use crate::vertex::{InitialData, Vertex};
 use anyhow::Result;
 use cgmath::{Deg, Zero};
 use rand::Rng;
@@ -16,6 +11,17 @@ use wgpu_text::glyph_brush::{BuiltInLineBreaker, HorizontalAlign, VerticalAlign}
 use winit::event::ElementState;
 use winit::window::Window;
 
+use crate::camera::controller::CameraController;
+use crate::camera::instance::CameraInstance;
+use crate::camera::uniform::CameraUniform;
+use crate::fft::cascade::InitialData;
+use crate::settings::builder::OceanSettingsBuilder;
+use crate::settings::presets::OceanPreset;
+use crate::settings::uniform::OceanSettingsUniform;
+use crate::skybox::skybox::Skybox;
+use crate::texture::instance::{TextureInstance, DEPTH_FORMAT, FFT_TEXTURE_FORMAT};
+use crate::vertex::vertex::Vertex;
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FFTUniform {
@@ -28,10 +34,10 @@ pub struct FFTUniform {
 
 pub struct CascadeResources {
     pub size: f32,
-    pub texture_ping_h_dx: Texture,
-    pub texture_pong_h_dx: Texture,
-    pub texture_ping_dz: Texture,
-    pub texture_pong_dz: Texture,
+    pub texture_ping_h_dx: TextureInstance,
+    pub texture_pong_h_dx: TextureInstance,
+    pub texture_ping_dz: TextureInstance,
+    pub texture_pong_dz: TextureInstance,
     pub bind_groups_ping: Vec<wgpu::BindGroup>,
     pub bind_groups_pong: Vec<wgpu::BindGroup>,
     pub height_field_render_bind_group_ping: wgpu::BindGroup,
@@ -59,7 +65,7 @@ pub struct State {
     pub vertex_buffer: wgpu::Buffer,
     pub num_indices: u32,
     pub index_buffer: wgpu::Buffer,
-    pub camera: Camera,
+    pub camera: CameraInstance,
     pub camera_uniform: CameraUniform,
     pub camera_buffer: wgpu::Buffer,
     pub camera_bind_group: wgpu::BindGroup,
@@ -68,7 +74,7 @@ pub struct State {
 
     pub text_brush: wgpu_text::TextBrush,
 
-    pub depth_texture: Texture,
+    pub depth_texture: TextureInstance,
     pub skybox: Skybox,
 
     pub last_frame_time_instant: Instant,
@@ -91,8 +97,8 @@ pub struct State {
 
     pub foam_generation_pipeline: wgpu::ComputePipeline,
     pub foam_advection_pipeline: wgpu::ComputePipeline,
-    pub foam_texture_ping: Texture,
-    pub foam_texture_pong: Texture,
+    pub foam_texture_ping: TextureInstance,
+    pub foam_texture_pong: TextureInstance,
     pub foam_compute_bind_groups: [wgpu::BindGroup; 2],
     pub foam_render_bind_groups: [wgpu::BindGroup; 2],
     pub foam_compute_layout: wgpu::BindGroupLayout,
@@ -106,10 +112,10 @@ pub struct State {
     pub combined_clear_pipeline: wgpu::ComputePipeline,
     pub combined_bind_group_layout: wgpu::BindGroupLayout,
 
-    pub combined_texture_ping_h_dx: Texture,
-    pub combined_texture_ping_dz: Texture,
-    pub combined_texture_pong_h_dx: Texture,
-    pub combined_texture_pong_dz: Texture,
+    pub combined_texture_ping_h_dx: TextureInstance,
+    pub combined_texture_ping_dz: TextureInstance,
+    pub combined_texture_pong_h_dx: TextureInstance,
+    pub combined_texture_pong_dz: TextureInstance,
     pub combined_output_is_ping: bool,
 
     pub height_field_compute_bind_group_layout: wgpu::BindGroupLayout,
@@ -236,10 +242,10 @@ impl State {
 
         // Create a depth texture
         let depth_texture =
-            Texture::create_depth_texture(&device, &surface_config, "depth_texture");
+            TextureInstance::create_depth_texture(&device, &surface_config, "depth_texture");
 
         // Camera setup pointing North
-        let mut camera = Camera {
+        let mut camera = CameraInstance {
             forward: cgmath::Vector3::zero(),
             eye: (0.0, 10.0, 0.0).into(),
             yaw: Deg(-90.0).into(),
@@ -298,7 +304,7 @@ impl State {
         // UPD: include_str!() seems to actually perform better
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/render.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("./render.wgsl").into()),
         });
 
         // Setting up the surface
@@ -487,25 +493,25 @@ impl State {
                 ],
             });
 
-        let combined_texture_ping_h_dx = Texture::create_storage_texture(
+        let combined_texture_ping_h_dx = TextureInstance::create_storage_texture(
             &device,
             ocean_settings_uniform.fft_subdivisions,
             "combined_texture_ping_h_dx",
         );
 
-        let combined_texture_ping_dz = Texture::create_storage_texture(
+        let combined_texture_ping_dz = TextureInstance::create_storage_texture(
             &device,
             ocean_settings_uniform.fft_subdivisions,
             "combined_texture_ping_dz",
         );
 
-        let combined_texture_pong_h_dx = Texture::create_storage_texture(
+        let combined_texture_pong_h_dx = TextureInstance::create_storage_texture(
             &device,
             ocean_settings_uniform.fft_subdivisions,
             "combined_texture_pong_h_dx",
         );
 
-        let combined_texture_pong_dz = Texture::create_storage_texture(
+        let combined_texture_pong_dz = TextureInstance::create_storage_texture(
             &device,
             ocean_settings_uniform.fft_subdivisions,
             "combined_texture_pong_dz",
@@ -630,23 +636,23 @@ impl State {
                 label: Some(&format!("initial_data_group_{cascade_index}")),
             });
 
-            let texture_ping_h_dx = Texture::create_storage_texture(
+            let texture_ping_h_dx = TextureInstance::create_storage_texture(
                 &device,
                 ocean_settings_uniform.fft_subdivisions,
                 &format!("fft_texture_ping_h_dx_{cascade_index}"),
             );
 
-            let texture_pong_h_dx = Texture::create_storage_texture(
+            let texture_pong_h_dx = TextureInstance::create_storage_texture(
                 &device,
                 ocean_settings_uniform.fft_subdivisions,
                 &format!("fft_texture_pong_h_dx_{cascade_index}"),
             );
-            let texture_ping_dz = Texture::create_storage_texture(
+            let texture_ping_dz = TextureInstance::create_storage_texture(
                 &device,
                 ocean_settings_uniform.fft_subdivisions,
                 &format!("fft_texture_ping_dz_{cascade_index}"),
             );
-            let texture_pong_dz = Texture::create_storage_texture(
+            let texture_pong_dz = TextureInstance::create_storage_texture(
                 &device,
                 ocean_settings_uniform.fft_subdivisions,
                 &format!("fft_texture_pong_dz_{cascade_index}"),
@@ -993,7 +999,7 @@ impl State {
 
         let fft_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fft_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/fft.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../fft/compute.wgsl").into()),
         });
 
         let fft_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1094,7 +1100,7 @@ impl State {
 
         let combine_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("combine_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/combine.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../fft/cascade.wgsl").into()),
         });
 
         let combined_pipeline_layout =
@@ -1170,7 +1176,7 @@ impl State {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: crate::texture::DEPTH_FORMAT,
+                format: DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
@@ -1210,7 +1216,7 @@ impl State {
         });
 
         let depth_stencil = Some(wgpu::DepthStencilState {
-            format: crate::texture::DEPTH_FORMAT,
+            format: DEPTH_FORMAT,
             depth_write_enabled: false,
             depth_compare: wgpu::CompareFunction::LessEqual,
             stencil: wgpu::StencilState::default(),
@@ -1219,7 +1225,7 @@ impl State {
 
         // Setting up the text
 
-        let font_bytes = include_bytes!("../static/JetBrainsMono.ttf");
+        let font_bytes = include_bytes!("../../static/JetBrainsMono.ttf");
         let font = FontArc::try_from_slice(font_bytes).unwrap();
         let text_brush = wgpu_text::BrushBuilder::using_font(font)
             .with_depth_stencil(depth_stencil)
@@ -1366,8 +1372,11 @@ impl State {
             self.surface_config.width = width;
             self.surface_config.height = height;
             self.surface.configure(&self.device, &self.surface_config);
-            self.depth_texture =
-                Texture::create_depth_texture(&self.device, &self.surface_config, "depth_texture");
+            self.depth_texture = TextureInstance::create_depth_texture(
+                &self.device,
+                &self.surface_config,
+                "depth_texture",
+            );
             self.is_surface_configured = true;
             self.text_brush
                 .resize_view(width as f32, height as f32, &self.queue);

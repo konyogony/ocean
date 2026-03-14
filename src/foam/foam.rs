@@ -1,6 +1,6 @@
-use crate::settings::OceanSettingsUniform;
-use crate::state::State;
-use crate::texture::{Texture, FFT_TEXTURE_FORMAT};
+use crate::pipeline::state::State;
+use crate::settings::uniform::OceanSettingsUniform;
+use crate::texture::instance::{TextureInstance, FFT_TEXTURE_FORMAT};
 
 impl State {
     pub fn update_foam(&mut self) {
@@ -60,11 +60,12 @@ impl State {
         ocean_settings_uniform: &OceanSettingsUniform,
         ocean_settings_bind_group_layout: &wgpu::BindGroupLayout,
         height_field_render_bind_group_layout: &wgpu::BindGroupLayout,
+        // TODO: Find out do we need this
         height_field_compute_bind_group_layout: &wgpu::BindGroupLayout,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> (
-        Texture,
-        Texture,
+        TextureInstance,
+        TextureInstance,
         wgpu::ComputePipeline, // gen pipeline
         wgpu::ComputePipeline, // adv piipeline
         wgpu::BindGroupLayout, // compute layout
@@ -72,13 +73,13 @@ impl State {
         [wgpu::BindGroup; 2],  // compute bind groups
         [wgpu::BindGroup; 2],  // render bind groups
     ) {
-        let foam_texture_ping = Texture::create_storage_texture(
+        let foam_texture_ping = TextureInstance::create_storage_texture(
             device,
             ocean_settings_uniform.fft_subdivisions,
             "foam_texture_ping",
         );
 
-        let foam_texture_pong = Texture::create_storage_texture(
+        let foam_texture_pong = TextureInstance::create_storage_texture(
             device,
             ocean_settings_uniform.fft_subdivisions,
             "foam_texture_pong",
@@ -212,7 +213,7 @@ impl State {
 
         let foam_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("foam_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/foam.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("./foam.wgsl").into()),
         });
 
         let foam_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

@@ -4,13 +4,13 @@ use image::GenericImageView;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 pub const FFT_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
-pub struct Texture {
+pub struct TextureInstance {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
 }
 
-impl Texture {
+impl TextureInstance {
     pub fn from_bytes(
         bytes: &[u8],
         device: &wgpu::Device,
@@ -154,7 +154,7 @@ impl Texture {
             ..Default::default()
         });
 
-        Ok(Texture {
+        Ok(Self {
             texture,
             view,
             sampler,

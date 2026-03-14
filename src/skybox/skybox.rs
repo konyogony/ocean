@@ -1,6 +1,8 @@
 use anyhow::Result;
 use wgpu::util::DeviceExt;
 
+use crate::texture::instance::DEPTH_FORMAT;
+
 const SKYBOX_VERTICES: &[f32] = &[
     -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, -1.0, 1.0, -1.0,
     -1.0, 1.0, 1.0, -1.0, -1.0, 1.0, -1.0,
@@ -31,7 +33,7 @@ impl Skybox {
     ) -> Result<Self> {
         let skybox_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("skybox_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/skybox.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("./skybox.wgsl").into()),
         });
 
         let skybox_render_pipeline_layout =
@@ -87,7 +89,7 @@ impl Skybox {
                     ..Default::default()
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
-                    format: crate::texture::DEPTH_FORMAT,
+                    format: DEPTH_FORMAT,
                     depth_write_enabled: false,
                     depth_compare: wgpu::CompareFunction::LessEqual,
                     stencil: wgpu::StencilState::default(),

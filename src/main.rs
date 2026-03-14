@@ -1,4 +1,4 @@
-use crate::state::State;
+use crate::pipeline::state::State;
 use anyhow::Result;
 use std::sync::Arc;
 use winit::keyboard::KeyCode;
@@ -18,9 +18,9 @@ pub const DESC: &str = env!("CARGO_PKG_DESCRIPTION");
 pub mod camera;
 pub mod fft;
 pub mod foam;
+pub mod pipeline;
 pub mod settings;
 pub mod skybox;
-pub mod state;
 pub mod texture;
 pub mod ui;
 pub mod vertex;
