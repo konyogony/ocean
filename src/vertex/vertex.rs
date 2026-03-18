@@ -34,11 +34,11 @@ impl Vertex {
         }
     }
 
-    // UPD: I understood what is happening
     pub fn generate_plane(size: &f32, subdivisions: u32) -> (Vec<Vertex>, Vec<u32>) {
+        let subdivisions = subdivisions.min(1024);
+
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
-
         let step = size / subdivisions as f32;
         let half_size = size / 2.0;
 

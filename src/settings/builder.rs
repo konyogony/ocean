@@ -122,9 +122,9 @@ pub struct OceanSettingsBuilder {
 impl Default for OceanSettingsBuilder {
     fn default() -> Self {
         Self {
-            mesh_size: 5000.0,
+            mesh_size: 1024.0,
             mesh_subdivisions: 2048,
-            fft_subdivisions: 256,
+            fft_subdivisions: 2048,
             time_scale: 1.5,
             ocean_seed: 0,
             chop_scale: 1.2,

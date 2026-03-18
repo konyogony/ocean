@@ -434,7 +434,7 @@ impl State {
 
                     section(ui, "Camera", false, |ui| {
                         s!(ui, "Render Distance", zfar, 100.0..=10000.0);
-                        s!(ui, "FOV", fovy, 30.0..=120.0);
+                        s!(ui, "FOV", fovy, 10.0..=160.0);
                         s!(ui, "Camera Speed", cam_speed, 1.0..=100.0);
                         s!(ui, "Camera Boost", cam_boost, 0.0..=10.0);
                         s!(ui, "Mouse Sensitivity", cam_sensitivity, 0.0001..=0.01);

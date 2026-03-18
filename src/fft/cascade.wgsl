@@ -1,6 +1,3 @@
-const g: f32 = 9.81;
-const pi: f32 = 3.14159;
-
 struct OceanSettingsUniform {
     deep_color: vec4<f32>,
     shallow_color: vec4<f32>,
@@ -128,38 +125,41 @@ struct OceanSettingsUniform {
     _pad_final: array<vec4<f32>, 3>,
 };
 
+struct CombineUniform {
+    cascade_index: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+}
+
 @group(0) @binding(0) var<uniform> ocean_settings: OceanSettingsUniform;
 
-@group(1) @binding(0) var in_h_dx: texture_2d<f32>;
-@group(1) @binding(1) var in_dz: texture_2d<f32>;
+@group(1) @binding(0) var combined_read: texture_2d<f32>;
+@group(1) @binding(1) var combined_write: texture_storage_2d<rgba16float, write>;
 
-@group(1) @binding(2) var combined_read_h_dx: texture_2d<f32>;
-@group(1) @binding(3) var combined_read_dz: texture_2d<f32>;
-
-@group(1) @binding(4) var combined_write_h_dx: texture_storage_2d<rgba16float, write>;
-@group(1) @binding(5) var combined_write_dz: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> combine_config: CombineUniform;
+@group(2) @binding(1) var in_packed: texture_2d<f32>;
+@group(2) @binding(2) var in_sampler: sampler;
 
 @compute @workgroup_size(16, 16)
 fn combine_cascades(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let n = ocean_settings.fft_subdivisions;
     let coords = vec2<i32>(gid.xy);
+    let uv = (vec2<f32>(gid.xy) + 0.5) / f32(n);
 
-    let combined_h_dx = textureLoad(combined_read_h_dx, coords, 0);
-    let combined_dz = textureLoad(combined_read_dz, coords, 0);
+    let this_size = ocean_settings.cascade_data[combine_config.cascade_index].x;
+    let ref_size = ocean_settings.cascade_data[0].x;
+    let scaled_uv = uv * (this_size / ref_size);
 
-    let cascade_h_dx = textureLoad(in_h_dx, coords, 0);
-    let cascade_dz = textureLoad(in_dz, coords, 0);
+    let cascade_data = textureSampleLevel(in_packed, in_sampler, scaled_uv, 0.0);
+    let combined_data = textureLoad(combined_read, coords, 0);
 
-    let sum_h_dx = combined_h_dx + cascade_h_dx;
-    let sum_dz = combined_dz + cascade_dz;
-
-    textureStore(combined_write_h_dx, coords, sum_h_dx);
-    textureStore(combined_write_dz, coords, sum_dz);
+    // now everyting is packed again.
+    textureStore(combined_write, coords, combined_data + cascade_data);
 }
 
 @compute @workgroup_size(16, 16)
 fn clear_textures(@builtin(global_invocation_id) gid: vec3<u32>) {
     let coords = vec2<i32>(gid.xy);
-
-    textureStore(combined_write_h_dx, coords, vec4(0.0));
-    textureStore(combined_write_dz, coords, vec4(0.0));
+    textureStore(combined_write, coords, vec4(0.0));
 }

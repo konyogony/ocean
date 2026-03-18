@@ -15,19 +15,18 @@ impl State {
         } else {
             &self.combined_render_bind_group_pong
         };
-        let (foam_read_index, foam_write_index) = if self.foam_output_is_a {
+        let (gen_read, gen_write) = if self.foam_output_is_a {
             (0, 1)
         } else {
             (1, 0)
         };
 
-        // first we generate
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.foam_generation_pipeline);
             pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
             pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            pass.set_bind_group(2, &self.foam_compute_bind_groups[foam_read_index], &[]);
+            pass.set_bind_group(2, &self.foam_compute_bind_groups[gen_read], &[]);
             pass.set_bind_group(3, fft_read_bind_group, &[]);
             pass.dispatch_workgroups(
                 self.ocean_settings_uniform.fft_subdivisions / 16,
@@ -36,13 +35,14 @@ impl State {
             );
         }
 
-        // Advection pass
+        let adv_read = gen_write;
+
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.foam_advection_pipeline);
             pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
             pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            pass.set_bind_group(2, &self.foam_compute_bind_groups[foam_write_index], &[]);
+            pass.set_bind_group(2, &self.foam_compute_bind_groups[adv_read], &[]);
             pass.set_bind_group(3, fft_read_bind_group, &[]);
             pass.dispatch_workgroups(
                 self.ocean_settings_uniform.fft_subdivisions / 16,
@@ -60,18 +60,17 @@ impl State {
         ocean_settings_uniform: &OceanSettingsUniform,
         ocean_settings_bind_group_layout: &wgpu::BindGroupLayout,
         height_field_render_bind_group_layout: &wgpu::BindGroupLayout,
-        // TODO: Find out do we need this
         height_field_compute_bind_group_layout: &wgpu::BindGroupLayout,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> (
         TextureInstance,
         TextureInstance,
-        wgpu::ComputePipeline, // gen pipeline
-        wgpu::ComputePipeline, // adv piipeline
-        wgpu::BindGroupLayout, // compute layout
-        wgpu::BindGroupLayout, // render layour
-        [wgpu::BindGroup; 2],  // compute bind groups
-        [wgpu::BindGroup; 2],  // render bind groups
+        wgpu::ComputePipeline,
+        wgpu::ComputePipeline,
+        wgpu::BindGroupLayout,
+        wgpu::BindGroupLayout,
+        [wgpu::BindGroup; 2],
+        [wgpu::BindGroup; 2],
     ) {
         let foam_texture_ping = TextureInstance::create_storage_texture(
             device,
@@ -239,7 +238,7 @@ impl State {
 
         let foam_advection_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("foam_generation_pipeline"),
+                label: Some("foam_advection_pipeline"),
                 layout: Some(&foam_pipeline_layout),
                 module: &foam_shader,
                 entry_point: Some("advect_foam"),

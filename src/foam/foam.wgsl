@@ -142,81 +142,90 @@ struct CameraUniform {
 @group(2) @binding(1) var foam_texture_write: texture_storage_2d<rgba16float, write>;
 @group(2) @binding(2) var foam_sampler: sampler;
 
-@group(3) @binding(0) var texture_h_dx: texture_2d<f32>;
-@group(3) @binding(1) var texture_dz: texture_2d<f32>;
-@group(3) @binding(2) var sampler_height_field: sampler;
+@group(3) @binding(0) var texture_packed: texture_2d<f32>;
+@group(3) @binding(1) var sampler_height_field: sampler;
 
+fn hash21(p: vec2<f32>) -> f32 {
+    var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+fn hash22(p: vec2<f32>) -> vec2<f32> {
+    var p3 = fract(vec3<f32>(p.xyx) * vec3<f32>(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+fn noise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(hash21(i), hash21(i + vec2(1.0, 0.0)), u.x),
+        mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), u.x),
+        u.y
+    );
+}
 
 @compute @workgroup_size(16, 16, 1)
 fn compute_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let dims = textureDimensions(texture_h_dx);
-    let size = f32(dims.x);
-    let chop = ocean_settings.chop_scale;
-
+    let dims = textureDimensions(texture_packed);
     let x = global_id.x;
     let y = global_id.y;
+    let chop = ocean_settings.chop_scale;
+
     let r = (x + 1u) % dims.x;
     let l = (x + dims.x - 1u) % dims.x;
     let u = (y + 1u) % dims.y;
     let d = (y + dims.y - 1u) % dims.y;
 
-    let h_dx_r = textureLoad(texture_h_dx, vec2(r, y), 0);
-    let h_dx_l = textureLoad(texture_h_dx, vec2(l, y), 0);
-    let h_dx_u = textureLoad(texture_h_dx, vec2(x, u), 0);
-    let h_dx_d = textureLoad(texture_h_dx, vec2(x, d), 0);
+    // now since packed -> single texture has .r as height, .g as dx and .b as dz
+    let data_right = textureLoad(texture_packed, vec2(r, y), 0);
+    let data_left = textureLoad(texture_packed, vec2(l, y), 0);
+    let data_up = textureLoad(texture_packed, vec2(x, u), 0);
+    let data_down = textureLoad(texture_packed, vec2(x, d), 0);
 
-    let dz_r = textureLoad(texture_dz, vec2(r, y), 0).x;
-    let dz_l = textureLoad(texture_dz, vec2(l, y), 0).x;
-    let dz_u = textureLoad(texture_dz, vec2(x, u), 0).x;
-    let dz_d = textureLoad(texture_dz, vec2(x, d), 0).x;
-
-    let dDx_du = (h_dx_r.z - h_dx_l.z) * chop * 0.5;
-    let dDz_dv = (dz_u - dz_d) * chop * 0.5;
-    
+    let dDx_du = (data_right.g - data_left.g) * chop * 0.5;
+    let dDz_dv = (data_up.b - data_down.b) * chop * 0.5;
     let jacobian = (1.0 + dDx_du) * (1.0 + dDz_dv);
-    let jacobian_mask = 1.0 - clamp(jacobian, 0.0, 1.0);
 
-    let h_current = textureLoad(texture_h_dx, vec2(x, y), 0);
-    let height_mask = smoothstep(-0.5, 1.2, h_current.x);
+    let breaking = clamp(ocean_settings.foam_threshold - jacobian, 0.0, 1.0);
+    let generated = pow(breaking, ocean_settings.foam_power);
 
-
-    let uv = vec2<f32>(global_id.xy) / f32(dims.x);
-    let foam_trigger = pow(clamp(1.0 - jacobian, 0.0, 1.0), 4.0) * ocean_settings.foam_power;
-    let final_generated = foam_trigger * smoothstep(0.0, 1.0, h_current.x);
-
-    let prev_foam = textureLoad(foam_texture_read, global_id.xy).r;
-    let final_foam = max(final_generated, prev_foam * 0.99);
-    textureStore(foam_texture_write, global_id.xy, vec4<f32>(final_foam));
+    let prev = textureLoad(foam_texture_read, global_id.xy).r;
+    let decayed = prev * ocean_settings.decay_factor;
+    let result = mix(decayed, max(generated, decayed), smoothstep(0.0, 0.06, generated));
+    textureStore(foam_texture_write, global_id.xy, vec4<f32>(clamp(result, 0.0, 1.0), 0.0, 0.0, 1.0));
 }
 
 @compute @workgroup_size(16, 16, 1)
 fn advect_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let dims = textureDimensions(texture_h_dx);
-    let dims_f = vec2<f32>(dims);
-    let id_f = vec2<f32>(global_id.xy);
+    let dims = textureDimensions(texture_packed);
+    let dims_f = vec2<f32>(f32(dims.x), f32(dims.y));
+    let id_f = vec2<f32>(f32(global_id.x), f32(global_id.y));
 
-    let h_dx_val = textureLoad(texture_h_dx, global_id.xy, 0);
-    let dz_val = textureLoad(texture_dz, global_id.xy, 0);
+    let data = textureLoad(texture_packed, global_id.xy, 0);
 
-    let velocity = vec2<f32>(h_dx_val.z, dz_val.x) * ocean_settings.chop_scale;
-    var sample_pos = id_f - (velocity * ocean_settings.foam_speed * camera.delta_time * dims_f * 0.05);
+    let velocity = vec2<f32>(data.g, data.b) * ocean_settings.chop_scale;
+    let advect_px = velocity * ocean_settings.foam_speed * camera.delta_time * 8.0;
+
+    var sample_pos = id_f - advect_px;
     sample_pos = ((sample_pos % dims_f) + dims_f) % dims_f;
 
-    // basically a nbilinear filter
     let f = fract(sample_pos);
-    let i = vec2<u32>(sample_pos);
-    let r = (i.x + 1u) % dims.x;
-    let u = (i.y + 1u) % dims.y;
+    let i = vec2<u32>(vec2<i32>(sample_pos));
+    let rx = (i.x + 1u) % dims.x;
+    let uy = (i.y + 1u) % dims.y;
 
     let tl = textureLoad(foam_texture_read, vec2(i.x, i.y)).r;
-    let tr = textureLoad(foam_texture_read, vec2(r, i.y)).r;
-    let bl = textureLoad(foam_texture_read, vec2(i.x, u)).r;
-    let br = textureLoad(foam_texture_read, vec2(r, u)).r;
+    let tr = textureLoad(foam_texture_read, vec2(rx, i.y)).r;
+    let bl = textureLoad(foam_texture_read, vec2(i.x, uy)).r;
+    let br = textureLoad(foam_texture_read, vec2(rx, uy)).r;
 
-    let sampled_foam = mix(mix(tl, tr, f.x), mix(bl, br, f.x), f.y);
-
-    let advected_val = sampled_foam * ocean_settings.dissipation_factor;
-    textureStore(foam_texture_write, global_id.xy, vec4<f32>(advected_val));
+    let sampled = mix(mix(tl, tr, f.x), mix(bl, br, f.x), f.y);
+    let advected = sampled * ocean_settings.dissipation_factor;
+    textureStore(foam_texture_write, global_id.xy, vec4<f32>(clamp(advected, 0.0, 1.0), 0.0, 0.0, 1.0));
 }
 
 fn get_foam(uv: vec2<f32>, time: f32) -> f32 {
@@ -235,27 +244,11 @@ fn get_foam(uv: vec2<f32>, time: f32) -> f32 {
     var amplitude: f32 = 0.5;
     var current_p = p;
     let rot = mat2x2<f32>(0.7962, 0.6050, -0.6050, 0.7962);
-    
+
     for (var i = 0u; i < ocean_settings.foam_octaves; i++) {
         value += noise(current_p) * amplitude;
         current_p = rot * current_p * 2.0;
         amplitude *= 0.5;
     }
     return 0.3 + value * 0.7;
-}
-
-fn hash21(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3(p.xyx) * ocean_settings.hash_scale);
-    p3 += dot(p3, p3.yzx + ocean_settings.hash_dot);
-    return fract((p3.x + p3.y) * p3.z);
-}
-
-fn noise(p: vec2<f32>) -> f32 {
-    let i = floor(p);
-    let f = fract(p);
-    let u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash21(i + vec2(0.0, 0.0)),
-                   hash21(i + vec2(1.0, 0.0)), u.x),
-               mix(hash21(i + vec2(0.0, 1.0)),
-                   hash21(i + vec2(1.0, 1.0)), u.x), u.y);
 }

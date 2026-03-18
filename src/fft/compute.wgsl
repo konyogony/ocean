@@ -140,10 +140,11 @@ struct FFTUniform {
 }
 
 @group(1) @binding(0) var<uniform> config: FFTUniform;
-@group(1) @binding(1) var src_h_dx: texture_storage_2d<rgba16float, read>;
+@group(1) @binding(1) var src_h_dx: texture_2d<f32>;
 @group(1) @binding(2) var dst_h_dx: texture_storage_2d<rgba16float, write>;
-@group(1) @binding(3) var src_dz: texture_storage_2d<rgba16float, read>;
+@group(1) @binding(3) var src_dz: texture_2d<f32>;
 @group(1) @binding(4) var dst_dz: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(5) var dst_packed_final: texture_storage_2d<rgba16float, write>;
 
 // Time
 struct CameraUniform {
@@ -253,11 +254,11 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
         i1 = vec2<u32>(idx1_t, other);
     }
 
-    let src0_h_dx = textureLoad(src_h_dx, vec2<i32>(i0));
-    let src1_h_dx = textureLoad(src_h_dx, vec2<i32>(i1));
+    let src0_h_dx = textureLoad(src_h_dx, vec2<i32>(i0), 0 );
+    let src1_h_dx = textureLoad(src_h_dx, vec2<i32>(i1), 0);
 
-    let src0_dz = textureLoad(src_dz, vec2<i32>(i0));
-    let src1_dz = textureLoad(src_dz, vec2<i32>(i1));
+    let src0_dz = textureLoad(src_dz, vec2<i32>(i0), 0);
+    let src1_dz = textureLoad(src_dz, vec2<i32>(i1), 0);
 
     // Positive since Inverse 
     let base = (1u << config.stage) - 1u;
@@ -266,13 +267,6 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
     let rotated_h_dx_xy = complex_multiplication(twiddle, src1_h_dx.xy);
     let rotated_h_dx_zw = complex_multiplication(twiddle, src1_h_dx.zw);
     
-    var result_h_dx: vec4<f32>;
-    if (pair == 0u) {
-        result_h_dx = vec4<f32>(src0_h_dx.xy + rotated_h_dx_xy, src0_h_dx.zw + rotated_h_dx_zw);
-    } else {
-        result_h_dx = vec4<f32>(src0_h_dx.xy - rotated_h_dx_xy, src0_h_dx.zw - rotated_h_dx_zw);
-    }
-
     // again, repeat same for dz
 
     let rotated_dz_xy = complex_multiplication(twiddle, src1_dz.xy);
@@ -283,13 +277,35 @@ fn fft_step(@builtin(global_invocation_id) id: vec3<u32>) {
         result_dz = vec4<f32>(src0_dz.xy - rotated_dz_xy, 0.0, 0.0);
     }
     
-    if (config.stage == ocean_settings.pass_num - 1u) {
-        result_dz = result_dz / f32(n);
-        result_h_dx = result_h_dx / f32(n);
-    }
+    // basically checking if last
+    if (config.stage == ocean_settings.pass_num - 1u && config.is_vertical == 1u) {
+        var res_h: vec2<f32>; var res_dx: vec2<f32>; var res_dz: vec2<f32>;
+        
+        if (pair == 0u) {
+            res_h = (src0_h_dx.xy + rotated_h_dx_xy) / f32(n);
+            res_dx = (src0_h_dx.zw + rotated_h_dx_zw) / f32(n);
+            res_dz = (src0_dz.xy + rotated_dz_xy) / f32(n);
+        } else {
+            res_h = (src0_h_dx.xy - rotated_h_dx_xy) / f32(n);
+            res_dx = (src0_h_dx.zw - rotated_h_dx_zw) / f32(n);
+            res_dz = (src0_dz.xy - rotated_dz_xy) / f32(n);
+        }
 
-    textureStore(dst_h_dx, vec2<u32>(id.xy), result_h_dx);
-    textureStore(dst_dz, vec2<i32>(id.xy), result_dz);
+        // cramming only the REAL parts into the texture
+        textureStore(dst_packed_final, vec2<i32>(id.xy), vec4<f32>(res_h.x, res_dx.x, res_dz.x, 1.0));
+    } else {
+        // normal ping pong
+        var res_h_dx: vec4<f32>; var res_dz: vec4<f32>;
+        if (pair == 0u) {
+            res_h_dx = vec4<f32>(src0_h_dx.xy + rotated_h_dx_xy, src0_h_dx.zw + rotated_h_dx_zw);
+            res_dz = vec4<f32>(src0_dz.xy + rotated_dz_xy, 0.0, 0.0);
+        } else {
+            res_h_dx = vec4<f32>(src0_h_dx.xy - rotated_h_dx_xy, src0_h_dx.zw - rotated_h_dx_zw);
+            res_dz = vec4<f32>(src0_dz.xy - rotated_dz_xy, 0.0, 0.0);
+        }
+        textureStore(dst_h_dx, vec2<i32>(id.xy), res_h_dx);
+        textureStore(dst_dz, vec2<i32>(id.xy), res_dz);
+    }
 }
 
 fn complex_multiplication(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
