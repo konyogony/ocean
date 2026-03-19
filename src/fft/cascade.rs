@@ -821,9 +821,8 @@ impl State {
 pub struct InitialData {
     pub k_vec: [f32; 2],
     pub initial_freq_domain: [f32; 2],
-    pub initial_freq_domain_conjugate: [f32; 2],
     pub angular_frequency: f32,
-    pub _padding: f32,
+    pub _padding: [f32; 3],
 }
 
 impl InitialData {
@@ -850,9 +849,8 @@ impl InitialData {
             return Self {
                 k_vec,
                 initial_freq_domain: [0.0, 0.0],
-                initial_freq_domain_conjugate: [0.0, 0.0],
                 angular_frequency: 0.0,
-                _padding: 0.0,
+                _padding: [0.0; 3],
             };
         }
 
@@ -866,7 +864,6 @@ impl InitialData {
         let imag = sqrt_ph * xi_i;
 
         let freq_domain = [real, imag];
-        let freq_domain_conjugate = [real, -imag];
 
         let k: Vector2<f32> = k_vec.into();
         let k_len = k.magnitude();
@@ -879,9 +876,8 @@ impl InitialData {
         Self {
             k_vec,
             initial_freq_domain: freq_domain,
-            initial_freq_domain_conjugate: freq_domain_conjugate,
             angular_frequency: w,
-            _padding: 0.0,
+            _padding: [0.0; 3],
         }
     }
 

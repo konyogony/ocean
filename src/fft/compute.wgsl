@@ -164,7 +164,6 @@ var<uniform> camera: CameraUniform;
 struct InitialData {
     k_vec: vec2<f32>,
     initial_frequency_domain: vec2<f32>,
-    initial_frequency_domain_conjugate: vec2<f32>,
     angular_frequency:  f32,
 }
 
