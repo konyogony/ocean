@@ -175,6 +175,9 @@ fn compute_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let y = global_id.y;
     let chop = ocean_settings.chop_scale;
 
+    // now using a global scale
+    let world_step = 1000 / f32(dims.x);
+
     let r = (x + 1u) % dims.x;
     let l = (x + dims.x - 1u) % dims.x;
     let u = (y + 1u) % dims.y;
@@ -186,16 +189,21 @@ fn compute_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let data_up = textureLoad(texture_packed, vec2(x, u), 0);
     let data_down = textureLoad(texture_packed, vec2(x, d), 0);
 
-    let dDx_du = (data_right.g - data_left.g) * chop * 0.5;
-    let dDz_dv = (data_up.b - data_down.b) * chop * 0.5;
-    let jacobian = (1.0 + dDx_du) * (1.0 + dDz_dv);
+    let dDx_du = (data_right.g - data_left.g) * chop / (2.0 * world_step);
+    let dDx_dv = (data_up.g - data_down.g) * chop / (2.0 * world_step);
+
+    let dDz_du = (data_right.b - data_left.b) * chop / (2.0 * world_step);
+    let dDz_dv = (data_up.b - data_down.b) * chop / (2.0 * world_step);
+
+    let jacobian = (1.0 + dDx_du) * (1.0 + dDz_dv) - (dDx_dv * dDz_du);
 
     let breaking = clamp(ocean_settings.foam_threshold - jacobian, 0.0, 1.0);
     let generated = pow(breaking, ocean_settings.foam_power);
 
     let prev = textureLoad(foam_texture_read, global_id.xy).r;
     let decayed = prev * ocean_settings.decay_factor;
-    let result = mix(decayed, max(generated, decayed), smoothstep(0.0, 0.06, generated));
+
+    let result = max(decayed, generated); 
     textureStore(foam_texture_write, global_id.xy, vec4<f32>(clamp(result, 0.0, 1.0), 0.0, 0.0, 1.0));
 }
 
@@ -205,10 +213,12 @@ fn advect_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let dims_f = vec2<f32>(f32(dims.x), f32(dims.y));
     let id_f = vec2<f32>(f32(global_id.x), f32(global_id.y));
 
+    let master_scale = 1000.0;
     let data = textureLoad(texture_packed, global_id.xy, 0);
 
     let velocity = vec2<f32>(data.g, data.b) * ocean_settings.chop_scale;
-    let advect_px = velocity * ocean_settings.foam_speed * camera.delta_time * 8.0;
+    let advect_dist_meters = velocity * ocean_settings.foam_speed * camera.delta_time;
+    let advect_px = (advect_dist_meters / master_scale) * dims_f;
 
     var sample_pos = id_f - advect_px;
     sample_pos = ((sample_pos % dims_f) + dims_f) % dims_f;

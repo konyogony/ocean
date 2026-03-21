@@ -3,16 +3,15 @@
   "author": "me",
   "description": "first big waves!!!",
   "created_at": 1773146185,
+  "mesh_size": 1024.0,
+  "mesh_subdivisions": 256,
   "last_modified_at": 1773150948,
   "fft_subdivisions": 256,
   "time_scale": 1.6,
   "ocean_seed": 643517511,
   "chop_scale": 0.85,
   "amplitude_scale": 1.0,
-  "wind_vector": [
-    22.0,
-    6.0
-  ],
+  "wind_vector": [22.0, 6.0],
   "l_small": 4.5,
   "max_w": 18.0,
   "fovy": 70.0,
@@ -37,113 +36,29 @@
   "caustic_octaves": 1,
   "caustic_depth": 1.0,
   "caustic_max_distance": 100.0,
-  "caustic_color_tint": [
-    0.8,
-    1.0,
-    1.0,
-    1.0
-  ],
-  "deep_color": [
-    0.0,
-    0.012,
-    0.055,
-    1.0
-  ],
-  "shallow_color": [
-    0.002,
-    0.045,
-    0.14,
-    1.0
-  ],
-  "sss_color": [
-    0.0,
-    0.18,
-    0.38,
-    1.0
-  ],
-  "sun_color": [
-    1.0,
-    0.97,
-    0.88,
-    1.0
-  ],
-  "sky_color_day_zenith": [
-    0.08,
-    0.22,
-    0.58,
-    1.0
-  ],
-  "sky_color_day_horizon": [
-    0.16,
-    0.32,
-    0.55,
-    1.0
-  ],
-  "sky_color_night_zenith": [
-    0.0,
-    0.0,
-    0.002,
-    1.0
-  ],
-  "sky_color_night_horizon": [
-    0.001,
-    0.002,
-    0.005,
-    1.0
-  ],
-  "sky_color_sunset_orange": [
-    0.55,
-    0.28,
-    0.1,
-    1.0
-  ],
-  "sky_color_sunset_pink": [
-    0.4,
-    0.15,
-    0.2,
-    1.0
-  ],
-  "sky_color_horizon_glow": [
-    0.35,
-    0.22,
-    0.1,
-    1.0
-  ],
-  "moon_color_lit": [
-    0.8,
-    0.8,
-    0.85,
-    1.0
-  ],
-  "moon_color_dark": [
-    0.08,
-    0.08,
-    0.1,
-    1.0
-  ],
-  "cloud_color_night": [
-    0.03,
-    0.03,
-    0.05,
-    1.0
-  ],
-  "cloud_color_day": [
-    0.75,
-    0.82,
-    0.95,
-    1.0
-  ],
+  "caustic_color_tint": [0.8, 1.0, 1.0, 1.0],
+  "deep_color": [0.0, 0.012, 0.055, 1.0],
+  "shallow_color": [0.002, 0.045, 0.14, 1.0],
+  "sss_color": [0.0, 0.18, 0.38, 1.0],
+  "sun_color": [1.0, 0.97, 0.88, 1.0],
+  "sky_color_day_zenith": [0.08, 0.22, 0.58, 1.0],
+  "sky_color_day_horizon": [0.16, 0.32, 0.55, 1.0],
+  "sky_color_night_zenith": [0.0, 0.0, 0.002, 1.0],
+  "sky_color_night_horizon": [0.001, 0.002, 0.005, 1.0],
+  "sky_color_sunset_orange": [0.55, 0.28, 0.1, 1.0],
+  "sky_color_sunset_pink": [0.4, 0.15, 0.2, 1.0],
+  "sky_color_horizon_glow": [0.35, 0.22, 0.1, 1.0],
+  "moon_color_lit": [0.8, 0.8, 0.85, 1.0],
+  "moon_color_dark": [0.08, 0.08, 0.1, 1.0],
+  "cloud_color_night": [0.03, 0.03, 0.05, 1.0],
+  "cloud_color_day": [0.75, 0.82, 0.95, 1.0],
   "sun_offset_z": 0.0,
   "sun_size_inner": 0.9994,
   "sun_size_outer": 0.9999,
   "sun_halo_power": 150.0,
   "moon_radius": 0.015,
   "moon_dist": 200.0,
-  "moon_phase_offset": [
-    0.0,
-    0.0,
-    1.0
-  ],
+  "moon_phase_offset": [0.0, 0.0, 1.0],
   "moon_crater_scale": 10.0,
   "moon_halo_power": 480.0,
   "star_count": 500.0,
@@ -173,17 +88,9 @@
       "amplitude": 0.04
     }
   ],
-  "sunset_scatter_color": [
-    0.95,
-    0.88,
-    0.78
-  ],
+  "sunset_scatter_color": [0.95, 0.88, 0.78],
   "sunset_scatter_intensity": 0.2,
-  "foam_base_color": [
-    0.88,
-    0.92,
-    0.9
-  ],
+  "foam_base_color": [0.88, 0.92, 0.9],
   "sss_min_height": -2.0,
   "sss_max_height": 6.0,
   "sss_power": 3.5,
@@ -230,3 +137,4 @@
   "fresnel_sky_cap": 0.48,
   "caustic_sss_blend": 0.4
 }
+

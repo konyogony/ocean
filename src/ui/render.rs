@@ -163,6 +163,8 @@ impl State {
                     });
 
                     section(ui, "Wave Physics", false, |ui| {
+                        s!(ui, "Mesh Size", mesh_size, 1.0..=5096.0);
+                        s!(ui, "Mesh Subdivisions", mesh_subdivisions, 1..=2048);
                         s!(ui, "FFT Steps", pass_num, 0..=defaults.pass_num);
                         s!(ui, "Amplitude Scale", amplitude_scale, 0.0..=20.0);
                         s!(ui, "Chop Scale", chop_scale, 0.0..=10.0);
@@ -551,6 +553,9 @@ impl State {
                             || self.ocean_settings_uniform.ocean_seed != old.ocean_seed
                             || self.ocean_settings_uniform.l_small != old.l_small
                             || self.ocean_settings_uniform.cascade_data != old.cascade_data
+                            || self.ocean_settings_uniform.mesh_subdivisions
+                                != old.mesh_subdivisions
+                            || self.ocean_settings_uniform.mesh_size != old.mesh_size
                         {
                             self.reinit_fft_resources();
                         }

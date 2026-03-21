@@ -3,6 +3,8 @@
   "author": "konyogony",
   "description": "Balanced ocean waves v1",
   "created_at": 1773151138,
+  "mesh_size": 1024.0,
+  "mesh_subdivisions": 256,
   "last_modified_at": 1773151138,
   "fft_subdivisions": 256,
   "time_scale": 1.0,

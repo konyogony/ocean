@@ -167,31 +167,27 @@ struct VertexOutput {
 fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
-    let world_xz = model.position.xz;
-    let uv = world_xz / ocean_settings.cascade_data[0].x;
-    let amp_scale = ocean_settings.amplitude_scale;
+    let world_pos = model.position.xyz;
+    let sample_uv = world_pos.xz / 1000.0; 
+    
+    let displacement = textureSampleLevel(texture_packed, sampler_ocean, sample_uv, 0.0);
+    let amp = ocean_settings.amplitude_scale;
     let chop = ocean_settings.chop_scale;
 
-    let displacement = textureSampleLevel(texture_packed, sampler_ocean, uv, 0.0);
-
-    let h_raw = displacement.r  * amp_scale;
-    let h = clamp(h_raw, -30.0, 30.0);
-    let h_enhanced = h + pow(abs(h), ocean_settings.wave_height_exp) * sign(h) * ocean_settings.wave_height_sharp;
-
-    let dx = clamp(displacement.g, -0.5, 0.5);
-    let dz = clamp(displacement.b, -0.5, 0.5);
+    let h = displacement.r * amp;
+    let dx = displacement.g * chop;
+    let dz = displacement.b * chop;
 
     let displaced_pos = vec3(
-        world_xz.x + dx * chop,
-        h_enhanced,
-        world_xz.y + dz * chop
+        model.position.x + dx,
+        h,
+        model.position.z + dz
     );
 
-    out.normal = vec3(0.0);
-    out.jacobian = 1.0;
-    out.tex_coords = uv;
-    out.height = displaced_pos.y;
+    out.tex_coords = sample_uv;
     out.world_pos = displaced_pos;
+    out.height = h;
+    out.jacobian = 1.0; 
     out.clip_position = camera.view_proj * vec4<f32>(displaced_pos, 1.0);
 
     return out;
@@ -201,30 +197,33 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.tex_coords;
+
     let amp = ocean_settings.amplitude_scale;
     let chop = ocean_settings.chop_scale;
-    let reference_size = ocean_settings.cascade_data[0].x;
     let subdivisions = f32(ocean_settings.fft_subdivisions);
 
-    let normal_world_step = ocean_settings.cascade_data[0].x / f32(ocean_settings.fft_subdivisions) * 3.0;
-    let delta_uv = normal_world_step / reference_size;
+    let texel_uv = 1.0 / subdivisions;
+    let sample_offset_uv = texel_uv * 1.5;
+    let run_meters = (sample_offset_uv * 2.0) * 1000;
+
+    let normal_world_step = ocean_settings.cascade_data[0].x / f32(ocean_settings.fft_subdivisions) * 1.5;
 
     // now since packed -> single texture has .r as height, .g as dx and .b as dz
-    let data_right = textureSampleLevel(texture_packed, sampler_ocean, uv + vec2(delta_uv, 0.0), 0.0);
-    let data_left = textureSampleLevel(texture_packed, sampler_ocean, uv - vec2(delta_uv, 0.0), 0.0);
-    let data_up = textureSampleLevel(texture_packed, sampler_ocean, uv + vec2(0.0, delta_uv), 0.0);
-    let data_down = textureSampleLevel(texture_packed, sampler_ocean, uv - vec2(0.0, delta_uv), 0.0);
+    let data_right = textureSampleLevel(texture_packed, sampler_ocean, uv + vec2(sample_offset_uv, 0.0), 0.0);
+    let data_left = textureSampleLevel(texture_packed, sampler_ocean, uv - vec2(sample_offset_uv, 0.0), 0.0);
+    let data_up = textureSampleLevel(texture_packed, sampler_ocean, uv + vec2(0.0, sample_offset_uv), 0.0);
+    let data_down = textureSampleLevel(texture_packed, sampler_ocean, uv - vec2(0.0, sample_offset_uv), 0.0);
 
-    let ddx_h = (data_right.r - data_left.r) * amp / (2.0 * normal_world_step);
-    let ddz_h = (data_up.x - data_down.r) * amp / (2.0 * normal_world_step);
+    let ddx_h = (data_right.r - data_left.r) * amp / run_meters;
+    let ddz_h = (data_up.r - data_down.r) * amp / run_meters;
 
-    let dDx_du = (data_right.g - data_left.g) * chop / (2.0 * normal_world_step);
-    let dDx_dv = (data_up.g - data_down.g) * chop / (2.0 * normal_world_step);
+    let dDx_du = (data_right.g - data_left.g) * chop /run_meters;
+    let dDx_dv = (data_up.g - data_down.g) * chop /run_meters;
 
-    let dDz_du = (data_right.b - data_left.b) * chop / (2.0 * normal_world_step);
-    let dDz_dv = (data_up.b - data_down.b) * chop / (2.0 * normal_world_step);
+    let dDz_du = (data_right.b - data_left.b) * chop / run_meters;
+    let dDz_dv = (data_up.b - data_down.b) * chop / run_meters;
 
-    let jacobian = (1.0 + dDx_du) * (1.0 + dDz_dv);
+    let jacobian = (1.0 + dDx_du) * (1.0 + dDz_dv) - (dDx_dv * dDz_du);
 
     let tangent_u = vec3<f32>(1.0 + dDx_du, ddx_h, dDz_du);
     let tangent_v = vec3<f32>(dDx_dv, ddz_h, 1.0 + dDz_dv);
@@ -278,7 +277,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let smooth_factor = smoothstep(100.0, ocean_settings.zfar, dist);
     let micro_strength = ocean_settings.micro_normal_strength * ocean_settings.micro_strength_mod;
 
-    let normal_with_micro = normalize(mix(normal_geometry, micro_combined, mid_fade * micro_strength));
+    let normal_with_micro = normalize(mix(normal_geometry, micro_combined, clamp(mid_fade * micro_strength, 0.0, 1.0)));
     let normal = normalize(mix(normal_with_micro, vec3(0.0, 1.0, 0.0), smooth_factor));
 
     let foam_display_threshold = 1.0 - ocean_settings.foam_scale;
@@ -311,14 +310,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     water_base = mix(water_base, ocean_settings.sss_color.rgb * 0.5, turbidity * 0.3);
     water_base *= max(intensity, ocean_settings.night_water_floor);
 
-    let sss_crest_mask = smoothstep(0.6, 0.0, jacobian);
+    let sss_crest_mask = smoothstep(0.7, 0.1, jacobian);
     let trans_light_dir = normalize(light_dir + normal * ocean_settings.sss_distortion_scale) * sss_crest_mask;
     let trans_dot = max(dot(view_dir, -trans_light_dir), 0.0);
     let p_back = pow(trans_dot, ocean_settings.sss_power);
+    let sss_dist_fade = 1.0 - smoothstep(100.0, 600.0, dist);
     let sss_thickness_mask = 1.0 - smoothstep(ocean_settings.sss_min_height, ocean_settings.sss_max_height, in.height);
-    let sss_strength = p_back * sss_thickness_mask * ocean_settings.sss_distortion_scale * ocean_settings.sss_intensity;
+    let sss_strength = p_back * sss_thickness_mask * sss_crest_mask * ocean_settings.sss_intensity * sss_dist_fade;
     let wave_peak_sss = smoothstep(0.8, 0.1, jacobian) * ocean_settings.sss_intensity;
-    let sss = mix(ocean_settings.sss_color.rgb, light_color, p_back) * (sss_strength + wave_peak_sss * 0.2);
+    let sss = mix(ocean_settings.sss_color.rgb, light_color, p_back) * (sss_strength + wave_peak_sss);
 
     let reflection_dampener = 1.0 - smoothstep(ocean_settings.reflection_min, ocean_settings.reflection_max, jacobian);
     let specular_val = cook_torrance(n_dot_light, n_dot_view, n_dot_half, alpha, fresnel_spec);

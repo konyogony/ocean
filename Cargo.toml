@@ -1,7 +1,7 @@
 [package]
 name = "ocean"
-description = "Polishing the product"
-version = "0.1.9"
+description = "All features complete - only tweaks"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]

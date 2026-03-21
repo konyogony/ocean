@@ -1,0 +1,242 @@
+{
+  "preset_name": "default2",
+  "author": "kony",
+  "description": "even better",
+  "created_at": 1774030576,
+  "last_modified_at": 1774033738,
+  "mesh_size": 512.0,
+  "mesh_subdivisions": 128,
+  "fft_subdivisions": 512,
+  "time_scale": 0.8,
+  "ocean_seed": 1236256647,
+  "chop_scale": 1.1,
+  "amplitude_scale": 1.0,
+  "wind_vector": [
+    -23.0,
+    18.0
+  ],
+  "l_small": 1.2,
+  "max_w": 18.0,
+  "fovy": 85.0,
+  "zfar": 1500.0,
+  "cam_speed": 20.0,
+  "cam_boost": 2.5,
+  "cam_sensitivity": 0.002,
+  "roughness": 0.12,
+  "f_0": 0.02,
+  "specular_scale": 1.5,
+  "reflection_scale": 0.8,
+  "foam_scale": 0.6,
+  "sss_distortion_scale": 0.4,
+  "micro_normal_strength": 0.4,
+  "foam_threshold": 0.0,
+  "foam_speed": 0.4,
+  "foam_roughness": 0.4,
+  "caustic_scale": 0.0,
+  "caustic_size": 2.0,
+  "caustic_speed": 0.1,
+  "caustic_intensity": 0.0,
+  "caustic_octaves": 1,
+  "caustic_depth": 1.0,
+  "caustic_max_distance": 100.0,
+  "caustic_color_tint": [
+    0.8,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "deep_color": [
+    0.0,
+    0.02,
+    0.08,
+    1.0
+  ],
+  "shallow_color": [
+    0.0,
+    0.1,
+    0.25,
+    1.0
+  ],
+  "sss_color": [
+    0.0,
+    0.5,
+    0.4,
+    1.0
+  ],
+  "sun_color": [
+    1.0,
+    1.0,
+    0.9,
+    1.0
+  ],
+  "sky_color_day_zenith": [
+    0.1,
+    0.35,
+    0.75,
+    1.0
+  ],
+  "sky_color_day_horizon": [
+    0.6,
+    0.8,
+    0.95,
+    1.0
+  ],
+  "sky_color_night_zenith": [
+    0.0,
+    0.0,
+    0.01,
+    1.0
+  ],
+  "sky_color_night_horizon": [
+    0.01,
+    0.01,
+    0.02,
+    1.0
+  ],
+  "sky_color_sunset_orange": [
+    0.8,
+    0.4,
+    0.1,
+    1.0
+  ],
+  "sky_color_sunset_pink": [
+    0.7,
+    0.3,
+    0.4,
+    1.0
+  ],
+  "sky_color_horizon_glow": [
+    0.4,
+    0.3,
+    0.2,
+    1.0
+  ],
+  "moon_color_lit": [
+    0.8,
+    0.8,
+    0.9,
+    1.0
+  ],
+  "moon_color_dark": [
+    0.1,
+    0.1,
+    0.15,
+    1.0
+  ],
+  "cloud_color_night": [
+    0.05,
+    0.05,
+    0.1,
+    1.0
+  ],
+  "cloud_color_day": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "sun_offset_z": 0.0,
+  "sun_size_inner": 0.9994,
+  "sun_size_outer": 0.9999,
+  "sun_halo_power": 150.0,
+  "moon_radius": 0.015,
+  "moon_dist": 200.0,
+  "moon_phase_offset": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "moon_crater_scale": 10.0,
+  "moon_halo_power": 480.0,
+  "star_count": 1200.0,
+  "star_size": 15.0,
+  "star_threshold": 0.998,
+  "star_blink_speed": 1.5,
+  "aurora_strength": 0.0,
+  "cloud_speed": 0.05,
+  "cloud_density_low": 0.1,
+  "cloud_density_high": 0.3,
+  "daynight_cycle": 0.67,
+  "cascade_data": [
+    {
+      "fft_size": 2048.0,
+      "amplitude": 0.4
+    },
+    {
+      "fft_size": 512.0,
+      "amplitude": 0.8
+    },
+    {
+      "fft_size": 128.0,
+      "amplitude": 0.3
+    },
+    {
+      "fft_size": 16.0,
+      "amplitude": 0.05
+    },
+    {
+      "fft_size": 4.0,
+      "amplitude": 0.01
+    },
+    {
+      "fft_size": 1.0,
+      "amplitude": 0.0
+    }
+  ],
+  "sunset_scatter_color": [
+    0.95,
+    0.88,
+    0.78
+  ],
+  "sunset_scatter_intensity": 0.1,
+  "foam_base_color": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "sss_min_height": 0.0,
+  "sss_max_height": 15.0,
+  "sss_power": 12.0,
+  "sss_intensity": 0.4,
+  "detail_fade": 800.0,
+  "ambient_scale": 0.05,
+  "blend_strength": 0.5,
+  "bloom_scale": 0.05,
+  "reflection_min": 0.1,
+  "reflection_max": 1.0,
+  "moon_light_dim": 0.2,
+  "sky_zenith_gradient_exp": 1.5,
+  "horizon_glow_mult": 0.5,
+  "sunset_orange_weight": 0.5,
+  "sunset_intensity": 1.0,
+  "sun_halo_intensity": 0.3,
+  "moon_halo_intensity": 0.05,
+  "micro_uv_freq": 0.02,
+  "micro_time_freq": 0.002,
+  "micro_strength_mod": 0.2,
+  "foam_crest_width": 1.0,
+  "caustic_aberration": 0.01,
+  "caustic_smooth_low": 0.6,
+  "caustic_smooth_high": 1.0,
+  "aurora_brightness": 0.0,
+  "aurora_y_threshold": 0.04,
+  "water_brightness_mod": 1.0,
+  "decay_factor": 0.95,
+  "dissipation_factor": 0.95,
+  "warp_uv_scale": 2.0,
+  "warp_strength": 0.4,
+  "warp_time_scale": 0.05,
+  "foam_octaves": 4,
+  "foam_power": 2.0,
+  "hash_scale": 0.1031,
+  "hash_dot": 33.33,
+  "steepness_threshold_low": 0.2,
+  "steepness_threshold_high": 0.8,
+  "y_displacement_weight": 1.0,
+  "wave_epsilon": 0.0001,
+  "wave_height_exp": 1.0,
+  "wave_height_sharp": 0.0,
+  "night_water_floor": 0.05,
+  "fresnel_sky_cap": 0.4,
+  "caustic_sss_blend": 0.4
+}

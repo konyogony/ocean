@@ -4,6 +4,7 @@ use crate::pipeline::state::FFTUniform;
 use crate::pipeline::state::State;
 use crate::settings::uniform::OceanSettingsUniform;
 use crate::texture::instance::TextureInstance;
+use crate::vertex::vertex::Vertex;
 use cgmath::{InnerSpace, Vector2};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -101,11 +102,7 @@ impl State {
                 &self.combined_read_write_bind_group_pong
             };
 
-            let cascade_input_bind_group = if self.cascades[cascade_index].output_is_ping {
-                &self.cascades[cascade_index].cascade_input_bind_group
-            } else {
-                &self.cascades[cascade_index].cascade_input_bind_group
-            };
+            let cascade_input_bind_group = &self.cascades[cascade_index].cascade_input_bind_group;
 
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.combined_cascade_pipeline);
@@ -122,7 +119,7 @@ impl State {
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
-        self.combined_output_is_ping = self.ocean_settings_uniform.cascade_count as usize % 2 == 1;
+        self.combined_output_is_ping = current_output_is_ping;
     }
 
     pub fn create_cascade_resource(
@@ -464,6 +461,11 @@ impl State {
                 n,
                 &format!("fft_texture_pong_dz_{cascade_index}"),
             );
+            cascade.texture_packed = TextureInstance::create_storage_texture(
+                &self.device,
+                n,
+                &format!("fft_packed_output_{cascade_index}"),
+            );
 
             cascade.config_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("fft_config_buffer"),
@@ -715,7 +717,31 @@ impl State {
                 label: Some("global_combined_render_pong"),
             });
 
-        self.combined_output_is_ping = new_count % 2 == 1;
+        self.combined_output_is_ping = new_count.is_multiple_of(2);
+
+        // re-create mesh
+        let (verticies, indices) = Vertex::generate_plane(
+            &self.ocean_settings_uniform.mesh_size,
+            self.ocean_settings_uniform.mesh_subdivisions,
+        );
+
+        self.vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("vertex_buffer"),
+                contents: bytemuck::cast_slice(&verticies),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+        self.index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("index_buffer_reinit"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        self.num_indices = indices.len() as u32;
     }
 
     pub fn create_bind_group(
@@ -856,8 +882,9 @@ impl InitialData {
 
         let phk = Self::get_phillips_spectrum_value(k_vec, wind_vector, l_small, amplitude, max_w);
 
-        let xi_r: f32 = rng.random::<f32>() * 2.0 - 1.0;
-        let xi_i: f32 = rng.random::<f32>() * 2.0 - 1.0;
+        // Now using a propper gaussian distribution
+        let xi_r = Self::box_muller(rng.random::<f32>().max(1e-6), rng.random::<f32>());
+        let xi_i = Self::box_muller(rng.random::<f32>().max(1e-6), rng.random::<f32>());
 
         let sqrt_ph = (phk / 2.0).sqrt();
         let real = sqrt_ph * xi_r;
@@ -879,6 +906,10 @@ impl InitialData {
             angular_frequency: w,
             _padding: [0.0; 3],
         }
+    }
+
+    pub fn box_muller(u1: f32, u2: f32) -> f32 {
+        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos()
     }
 
     pub fn generate_data(

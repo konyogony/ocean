@@ -165,6 +165,9 @@ struct InitialData {
     k_vec: vec2<f32>,
     initial_frequency_domain: vec2<f32>,
     angular_frequency:  f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 @group(3) @binding(0) var<storage, read> initial_data: array<InitialData>;

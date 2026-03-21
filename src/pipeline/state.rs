@@ -205,7 +205,7 @@ impl State {
         };
 
         let ocean_seed = rand::rng().random::<u32>();
-        let current_ocean_preset = OceanPreset::load_preset("balanced", Path::new("presets/"));
+        let current_ocean_preset = OceanPreset::load_preset("default", Path::new("presets/"));
         let ocean_settings_uniform = OceanSettingsBuilder::from_preset(&current_ocean_preset)
             .ocean_seed(ocean_seed)
             .build();
@@ -308,9 +308,10 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("./render.wgsl").into()),
         });
 
-        let mesh_subdivisions = ocean_settings_uniform.fft_subdivisions.min(512);
-        let (verticies, indicies) =
-            Vertex::generate_plane(&ocean_settings_uniform.mesh_size, mesh_subdivisions);
+        let (verticies, indicies) = Vertex::generate_plane(
+            &ocean_settings_uniform.mesh_size,
+            ocean_settings_uniform.mesh_subdivisions,
+        );
 
         let twiddle_factor_array =
             InitialData::generate_twiddle_factors(ocean_settings_uniform.fft_subdivisions);
@@ -657,8 +658,8 @@ impl State {
                 mapped_at_creation: false,
             });
 
-            for stage in 0..ocean_settings_uniform.pass_num {
-                for is_vertical in 0..2 {
+            for is_vertical in 0..2 {
+                for stage in 0..ocean_settings_uniform.pass_num {
                     let i = stage * 2 + is_vertical;
                     let uniform = FFTUniform {
                         stage,
@@ -1397,9 +1398,9 @@ impl State {
             };
 
             let foam_bind_group = if self.foam_output_is_a {
-                &self.foam_render_bind_groups[0]
-            } else {
                 &self.foam_render_bind_groups[1]
+            } else {
+                &self.foam_render_bind_groups[0]
             };
 
             render_pass.set_pipeline(&self.render_pipeline);

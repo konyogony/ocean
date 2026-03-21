@@ -36,34 +36,31 @@ impl Vertex {
 
     pub fn generate_plane(size: &f32, subdivisions: u32) -> (Vec<Vertex>, Vec<u32>) {
         let subdivisions = subdivisions.min(1024);
-
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
+
+        let num_vertices = subdivisions + 1;
         let step = size / subdivisions as f32;
         let half_size = size / 2.0;
 
-        for row in 0..subdivisions {
-            for col in 0..subdivisions {
+        for row in 0..num_vertices {
+            for col in 0..num_vertices {
                 let x = col as f32 * step - half_size;
                 let z = row as f32 * step - half_size;
 
                 vertices.push(Vertex {
                     position: [x, 0.0, z],
-                    tex_coords: [
-                        col as f32 / subdivisions as f32,
-                        row as f32 / subdivisions as f32,
-                    ],
-                    index: (row * subdivisions + col),
+                    tex_coords: [col as f32, row as f32],
+                    index: (row * num_vertices + col),
                 });
             }
         }
 
-        // Adjust index generation too
-        for row in 0..(subdivisions - 1) {
-            for col in 0..(subdivisions - 1) {
-                let top_left = row * subdivisions + col;
+        for row in 0..subdivisions {
+            for col in 0..subdivisions {
+                let top_left = row * num_vertices + col;
                 let top_right = top_left + 1;
-                let bottom_left = top_left + subdivisions;
+                let bottom_left = (row + 1) * num_vertices + col;
                 let bottom_right = bottom_left + 1;
 
                 indices.extend_from_slice(&[

@@ -418,6 +418,8 @@ impl OceanSettingsBuilder {
             wave_height_sharp: preset.wave_height_sharp,
             wave_height_exp: preset.wave_height_exp,
             night_water_floor: preset.night_water_floor,
+            mesh_size: preset.mesh_size,
+            mesh_subdivisions: preset.mesh_subdivisions,
             ..Default::default()
         }
     }
