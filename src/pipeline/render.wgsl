@@ -1,5 +1,4 @@
 const g: f32 = 9.81;
-const master_scale: f32 = 1024.0;
 const pi: f32 = 3.14159;
 
 struct OceanSettingsUniform {
@@ -157,8 +156,9 @@ struct VertexOutput {
 @group(0) @binding(0) var<uniform> ocean_settings: OceanSettingsUniform;
 @group(1) @binding(0) var<uniform> camera: CameraUniform;
 
-@group(2) @binding(0) var texture_packed: texture_2d<f32>;
+@group(2) @binding(0) var cascade_array: texture_2d_array<f32>;
 @group(2) @binding(1) var sampler_ocean: sampler;
+@group(2) @binding(2) var texture_packed: texture_2d<f32>;
 
 @group(3) @binding(0) var foam_texture: texture_2d<f32>;
 @group(3) @binding(1) var sampler_foam: sampler;
@@ -169,25 +169,33 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
     let world_pos = model.position.xyz;
-    let sample_uv = world_pos.xz / master_scale + 0.5; 
+
+    var total_h  = 0.0;
+    var total_dx = 0.0;
+    var total_dz = 0.0;
+
+    for (var i = 0u; i < ocean_settings.cascade_count; i++) {
+        if ocean_settings.cascade_data[i].y < 0.001 { continue; }
+        let fft_size = ocean_settings.cascade_data[i].x;
+        let uv = world_pos.xz / fft_size;
+        let s = textureSampleLevel(cascade_array, sampler_ocean, uv, i, 0.0);
+        total_h  += s.r;
+        total_dx += s.g;
+        total_dz += s.b;
+    }
     
-    let displacement = textureSampleLevel(texture_packed, sampler_ocean, sample_uv, 0.0);
     let amp = ocean_settings.amplitude_scale;
     let chop = ocean_settings.chop_scale;
 
-    let h = displacement.r * amp;
-    let dx = displacement.g * chop;
-    let dz = displacement.b * chop;
-
     let displaced_pos = vec3(
-        model.position.x + dx,
-        h,
-        model.position.z + dz
+        world_pos.x + total_dx * chop,
+        total_h * amp,
+        world_pos.z + total_dz * chop,
     );
 
-    out.tex_coords = sample_uv;
+    out.tex_coords = world_pos.xz / 1024.0 + 0.5;
     out.world_pos = displaced_pos;
-    out.height = h;
+    out.height = total_h * amp;
     out.jacobian = 1.0; 
     out.clip_position = camera.view_proj * vec4<f32>(displaced_pos, 1.0);
 
@@ -198,6 +206,7 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.tex_coords;
+    let master_scale = 1024.0;
 
     let amp = ocean_settings.amplitude_scale;
     let chop = ocean_settings.chop_scale;

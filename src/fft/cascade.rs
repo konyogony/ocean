@@ -13,6 +13,36 @@ use wgpu::util::DeviceExt;
 use wgpu::TextureView;
 
 impl State {
+    pub fn copy_cascades_to_array(&mut self) {
+        let n = self.ocean_settings_uniform.fft_subdivisions;
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        for (i, cascade) in self.cascades.iter().enumerate() {
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &cascade.texture_packed.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.cascade_array_texture.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: i as u32,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: n,
+                    height: n,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
     pub fn compute_fft(&mut self) {
         let mut encoder = self
             .device

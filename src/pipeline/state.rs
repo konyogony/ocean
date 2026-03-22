@@ -112,6 +112,9 @@ pub struct State {
     pub foam_render_layout: wgpu::BindGroupLayout,
     pub foam_output_is_a: bool,
 
+    pub cascade_array_texture: TextureInstance,
+    pub cascade_array_bind_group: wgpu::BindGroup,
+    pub cascade_array_bind_group_layout: wgpu::BindGroupLayout,
     pub cascades: Vec<CascadeResources>,
     pub combined_render_bind_group_ping: wgpu::BindGroup,
     pub combined_render_bind_group_pong: wgpu::BindGroup,
@@ -943,6 +946,64 @@ impl State {
                 cache: None,
             });
 
+        let cascade_array_texture = TextureInstance::create_cascade_array_texture(
+            &device,
+            ocean_settings_uniform.fft_subdivisions,
+            "cascade_array_texture",
+        );
+
+        let cascade_array_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("cascade_array_bind_group_layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        let cascade_array_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cascade_array_bind_group"),
+            layout: &cascade_array_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&cascade_array_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&cascade_array_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&combined_texture_ping.view),
+                },
+            ],
+        });
+
         let skybox = Skybox::new(
             &device,
             &surface_config,
@@ -956,7 +1017,7 @@ impl State {
                 bind_group_layouts: &[
                     &ocean_settings_bind_group_layout,
                     &camera_bind_group_layout,
-                    &height_field_render_bind_group_layout,
+                    &cascade_array_bind_group_layout,
                     &foam_render_layout,
                 ],
                 push_constant_ranges: &[],
@@ -1164,6 +1225,9 @@ impl State {
             gpu_temp,
             gpu_vram_used,
             gpu_vram_total,
+            cascade_array_texture,
+            cascade_array_bind_group_layout,
+            cascade_array_bind_group,
         })
     }
 
@@ -1253,6 +1317,7 @@ impl State {
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
         self.compute_fft();
+        self.copy_cascades_to_array();
         self.combine_cascades();
         self.update_foam();
     }
@@ -1391,11 +1456,11 @@ impl State {
             );
             render_pass.draw_indexed(0..self.skybox.num_skybox_indices, 0, 0..1);
 
-            let combined_bind_group = if self.combined_output_is_ping {
-                &self.combined_render_bind_group_ping
-            } else {
-                &self.combined_render_bind_group_pong
-            };
+            // let combined_bind_group = if self.combined_output_is_ping {
+            //     &self.combined_render_bind_group_ping
+            // } else {
+            //     &self.combined_render_bind_group_pong
+            // };
 
             let foam_bind_group = if self.foam_output_is_a {
                 &self.foam_render_bind_groups[1]
@@ -1406,7 +1471,7 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.ocean_settings_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(2, combined_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.cascade_array_bind_group, &[]);
             render_pass.set_bind_group(3, foam_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
