@@ -204,24 +204,28 @@ fn update_spectrum(@builtin(global_invocation_id) id: vec3<u32>) {
     let exponent_neg = vec2<f32>(cos_wt, -sin_wt);
 
     let h_tilda: vec2<f32> = (complex_multiplication(h_0, exponent) + complex_multiplication(h_0_mirrored_conjugate, exponent_neg)) * current_amplitude;
-    // No shift needed, since we are dealing w a texture now
-    // let shift = select(1.0, -1.0, ((x + y) % 2u) == 1u);
-    // let h_tilda_shifted = h_tilda * shift;
+    let shift = select(1.0, -1.0, ((x + y) % 2u) == 1u);
+    let h_tilda_shifted = vec2<f32>(h_tilda.x * shift, h_tilda.y * shift);
 
     let k = initial_data[index].k_vec;
     let k_len = length(k);
     var h_dx = vec2<f32>(0.0);
     var h_dz = vec2<f32>(0.0);
+    var h_dx_shifted = vec2<f32>(0.0);
+    var h_dz_shifted = vec2<f32>(0.0);
 
     if (k_len > ocean_settings.wave_epsilon) {
         let k_norm = k / k_len;
         // i * complex is: (-imag, real)
         h_dx = vec2<f32>(-h_tilda.y * k_norm.x, h_tilda.x * k_norm.x);
         h_dz = vec2<f32>(-h_tilda.y * k_norm.y, h_tilda.x * k_norm.y);
+
+        h_dx_shifted = vec2<f32>(h_dx.x * shift, h_dx.y * shift);
+        h_dz_shifted = vec2<f32>(h_dz.x * shift, h_dz.y * shift);
     }
 
-    textureStore(dst_h_dx, vec2<i32>(id.xy), vec4<f32>(h_tilda, h_dx));
-    textureStore(dst_dz, vec2<i32>(id.xy), vec4<f32>(h_dz, 0.0, 0.0));
+    textureStore(dst_h_dx, vec2<i32>(id.xy), vec4<f32>(h_tilda_shifted, h_dx_shifted));
+    textureStore(dst_dz, vec2<i32>(id.xy), vec4<f32>(h_dz_shifted, 0.0, 0.0));
 }
 
 // This will run log2(N) * 2 times

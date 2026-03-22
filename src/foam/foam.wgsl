@@ -237,28 +237,3 @@ fn advect_foam(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let advected = sampled * ocean_settings.dissipation_factor;
     textureStore(foam_texture_write, global_id.xy, vec4<f32>(clamp(advected, 0.0, 1.0), 0.0, 0.0, 1.0));
 }
-
-fn get_foam(uv: vec2<f32>, time: f32) -> f32 {
-    let warp_uv = uv * ocean_settings.warp_uv_scale;
-    let warp1 = vec2<f32>(
-        noise(warp_uv + vec2(time * ocean_settings.warp_time_scale, 0.0)),
-        noise(warp_uv + vec2(5.2, 1.3) - vec2(0.0, time * ocean_settings.warp_time_scale))
-    );
-    let warp2 = vec2<f32>(
-        noise(warp_uv * 1.7 + vec2(3.1, 7.4) + time * ocean_settings.warp_time_scale * 0.6),
-        noise(warp_uv * 1.7 + vec2(9.8, 2.7) - time * ocean_settings.warp_time_scale * 0.6)
-    );
-    let p = uv + warp1 * ocean_settings.warp_strength + warp2 * ocean_settings.warp_strength * 0.4;
-
-    var value: f32 = 0.0;
-    var amplitude: f32 = 0.5;
-    var current_p = p;
-    let rot = mat2x2<f32>(0.7962, 0.6050, -0.6050, 0.7962);
-
-    for (var i = 0u; i < ocean_settings.foam_octaves; i++) {
-        value += noise(current_p) * amplitude;
-        current_p = rot * current_p * 2.0;
-        amplitude *= 0.5;
-    }
-    return 0.3 + value * 0.7;
-}

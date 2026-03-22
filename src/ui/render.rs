@@ -556,6 +556,7 @@ impl State {
                             || self.ocean_settings_uniform.mesh_subdivisions
                                 != old.mesh_subdivisions
                             || self.ocean_settings_uniform.mesh_size != old.mesh_size
+                            || self.ocean_settings_uniform.max_w != old.max_w
                         {
                             self.reinit_fft_resources();
                         }

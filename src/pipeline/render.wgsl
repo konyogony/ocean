@@ -168,7 +168,7 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
     let world_pos = model.position.xyz;
-    let sample_uv = world_pos.xz / 1000.0; 
+    let sample_uv = world_pos.xz / 1000.0 + 0.5; 
     
     let displacement = textureSampleLevel(texture_packed, sampler_ocean, sample_uv, 0.0);
     let amp = ocean_settings.amplitude_scale;
@@ -281,7 +281,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(mix(normal_with_micro, vec3(0.0, 1.0, 0.0), smooth_factor));
 
     let foam_display_threshold = 1.0 - ocean_settings.foam_scale;
-    let foam_drift = wind_norm * camera.time * wind_mag * 0.00035;
+    let foam_drift = wind_norm * camera.delta_time * wind_mag * 0.035;
     let foam_uv_a = in.world_pos.xz * 2.0 + foam_drift;
     let foam_uv_b = in.world_pos.xz * 4.5 + foam_drift * 1.4 + vec2(17.3, 4.8);
     let detail_noise = noise(foam_uv_a) * 0.6 + noise(foam_uv_b) * 0.4;
