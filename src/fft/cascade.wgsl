@@ -145,7 +145,7 @@ struct CombineUniform {
 fn combine_cascades(@builtin(global_invocation_id) gid: vec3<u32>) {
     let n = ocean_settings.fft_subdivisions;
     let coords = vec2<i32>(gid.xy);
-    let master_scale = 1000.0; 
+    let master_scale = 1024.0; 
     let uv = (vec2<f32>(gid.xy) + 0.5) / f32(n);
 
     let this_fft_size = ocean_settings.cascade_data[combine_config.cascade_index].x;

@@ -1,4 +1,5 @@
 const g: f32 = 9.81;
+const master_scale: f32 = 1024.0;
 const pi: f32 = 3.14159;
 
 struct OceanSettingsUniform {
@@ -168,7 +169,7 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
     let world_pos = model.position.xyz;
-    let sample_uv = world_pos.xz / 1000.0 + 0.5; 
+    let sample_uv = world_pos.xz / master_scale + 0.5; 
     
     let displacement = textureSampleLevel(texture_packed, sampler_ocean, sample_uv, 0.0);
     let amp = ocean_settings.amplitude_scale;
@@ -204,9 +205,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let texel_uv = 1.0 / subdivisions;
     let sample_offset_uv = texel_uv * 1.5;
-    let run_meters = (sample_offset_uv * 2.0) * 1000;
-
-    let normal_world_step = ocean_settings.cascade_data[0].x / f32(ocean_settings.fft_subdivisions) * 1.5;
+    let run_meters = (sample_offset_uv * 2.0) * master_scale;
 
     // now since packed -> single texture has .r as height, .g as dx and .b as dz
     let data_right = textureSampleLevel(texture_packed, sampler_ocean, uv + vec2(sample_offset_uv, 0.0), 0.0);

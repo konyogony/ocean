@@ -45,6 +45,8 @@ impl ApplicationHandler<State> for App {
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
         window.set_cursor_visible(false);
+        // let monitor = window.current_monitor();
+        // window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)));
         if window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
             log::warn!("Could not lock cursor")
         }

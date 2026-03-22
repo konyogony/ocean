@@ -1,7 +1,7 @@
 {
   "preset_name": "big_waves",
   "author": "me",
-  "description": "first big waves!!!",
+  "description": "first big waves!!! (outdated)",
   "created_at": 1773146185,
   "mesh_size": 1024.0,
   "mesh_subdivisions": 256,
@@ -137,4 +137,3 @@
   "fresnel_sky_cap": 0.48,
   "caustic_sss_blend": 0.4
 }
-
