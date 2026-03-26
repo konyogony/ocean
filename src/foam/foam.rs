@@ -60,7 +60,6 @@ impl State {
         ocean_settings_uniform: &OceanSettingsUniform,
         ocean_settings_bind_group_layout: &wgpu::BindGroupLayout,
         height_field_render_bind_group_layout: &wgpu::BindGroupLayout,
-        height_field_compute_bind_group_layout: &wgpu::BindGroupLayout,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> (
         TextureInstance,

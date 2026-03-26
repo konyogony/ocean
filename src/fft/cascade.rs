@@ -427,7 +427,6 @@ impl State {
             &self.ocean_settings_uniform,
             &self.ocean_settings_bind_group_layout,
             &self.height_field_render_bind_group_layout,
-            &self.height_field_compute_bind_group_layout,
             &self.camera_bind_group_layout,
         );
         self.foam_texture_ping = foam_texture_ping;

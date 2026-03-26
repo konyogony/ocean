@@ -824,7 +824,6 @@ impl State {
             &ocean_settings_uniform,
             &ocean_settings_bind_group_layout,
             &height_field_render_bind_group_layout,
-            &height_field_compute_bind_group_layout,
             &camera_bind_group_layout,
         );
 

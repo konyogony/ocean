@@ -1,15 +1,7 @@
 use crate::pipeline::state::State;
 use crate::{camera::instance::CameraInstance, DESC, VERSION};
-use chrono::{Local, TimeZone};
+use chrono::Local;
 use std::time::SystemTime;
-
-fn fmt(ts: i64) -> String {
-    Local
-        .timestamp_opt(ts, 0)
-        .unwrap()
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string()
-}
 
 impl State {
     pub fn get_debug_text(&mut self) -> String {
