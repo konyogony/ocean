@@ -132,8 +132,11 @@ pub struct OceanPreset {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct CascadePreset {
+    #[serde(default)]
     pub fft_size: f32,
+    #[serde(default)]
     pub amplitude: f32,
 }
 
