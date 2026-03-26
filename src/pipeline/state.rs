@@ -153,6 +153,7 @@ pub struct State {
     pub draft_settings: OceanSettingsUniform,
     pub settings_changed: bool,
 
+    pub window_fullscreen: bool,
     pub window: Arc<Window>,
 }
 
@@ -1164,6 +1165,7 @@ impl State {
             gpu_temp,
             gpu_vram_used,
             gpu_vram_total,
+            window_fullscreen: false,
         })
     }
 
@@ -1184,6 +1186,21 @@ impl State {
         }
     }
 
+    pub fn toggle_fullscreen_mode(&mut self) {
+        match self.window_fullscreen {
+            true => {
+                self.window.set_fullscreen(None);
+            }
+            false => {
+                let monitor = self.window.current_monitor();
+                self.window
+                    .set_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)));
+            }
+        }
+
+        self.window_fullscreen = !self.window_fullscreen;
+    }
+
     pub fn handle_window_event(&mut self, event: &winit::event::WindowEvent) -> bool {
         if self.show_setting_ui {
             let egui_response = self.egui_state.on_window_event(&self.window, event);
@@ -1195,6 +1212,12 @@ impl State {
 
         match window_event {
             winit::event::WindowEvent::KeyboardInput { event, .. } => match event.physical_key {
+                winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::F5)
+                    if event.state == ElementState::Pressed =>
+                {
+                    self.toggle_fullscreen_mode();
+                    true
+                }
                 winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::F4)
                     if event.state == ElementState::Pressed =>
                 {
