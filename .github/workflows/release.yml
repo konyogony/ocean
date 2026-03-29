@@ -1,136 +1,70 @@
-name: Build and Package
-
+name: Release
 on:
   workflow_dispatch:
     inputs:
-      build_windows:
-        description: "Build Windows Zip?"
-        type: boolean
-        default: true
-      build_appimage:
-        description: "Build Linux AppImage?"
-        type: boolean
-        default: true
-      build_portable_zip:
-        description: "Build Linux Portable Zip?"
-        type: boolean
-        default: true
       create_release:
         description: "Create a GitHub Release?"
+        required: true
         type: boolean
         default: false
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
 
 jobs:
-  build-and-package:
-    name: Build and Package
+  build:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-
+    permissions: { contents: write }
     steps:
-      - name: 1. Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 2. Install System Dependencies
+      - name: Deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            gcc-mingw-w64-x86-64 \
-            zip \
-            libx11-dev \
-            libxcursor-dev \
-            libxrandr-dev \
-            libxi-dev \
-            libxinerama-dev \
-            libxkbcommon-dev \
-            libdrm-dev \
-            libgbm-dev
+          sudo apt-get install -y gcc-mingw-w64-x86-64 zip libx11-dev libxcursor-dev \
+          libxrandr-dev libxi-dev libxinerama-dev libxkbcommon-dev libdrm-dev libgbm-dev patchelf
 
-      - name: 3. Setup Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu" }
 
-      - name: 4. Enable Magic Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          shared-key: "ocean-cache"
+      - uses: swatinem/rust-cache@v2
 
-      - name: 5. Build Linux Binary
-        if: github.event_name == 'push' || github.event.inputs.build_appimage == 'true' || github.event.inputs.build_portable_zip == 'true'
-        run: cargo build --release
+      - name: Build
+        run: |
+          cargo build --release
+          cargo build --release --target x86_64-pc-windows-gnu
 
-      - name: 6. Build Windows Binary
-        if: github.event_name == 'push' || github.event.inputs.build_windows == 'true'
-        run: cargo build --release --target x86_64-pc-windows-gnu
-
-      - name: 7. Package Windows (Zip)
-        if: github.event_name == 'push' || github.event.inputs.build_windows == 'true'
+      - name: Package
+        env: { APPIMAGE_EXTRACT_AND_RUN: 1, STRIP: strip }
         run: |
           VER=${GITHUB_REF_NAME:-manual}
-          WIN_PKG="ocean-${VER}-windows-x86_64"
-          mkdir -p "$WIN_PKG"
-          cp target/x86_64-pc-windows-gnu/release/ocean.exe "$WIN_PKG/"
-          cp -r presets static "$WIN_PKG/" 2>/dev/null || true
-          zip -r "${WIN_PKG}.zip" "$WIN_PKG"
 
-      - name: 8. Setup Linux Packaging Tools
-        if: github.event_name == 'push' || github.event.inputs.build_appimage == 'true' || github.event.inputs.build_portable_zip == 'true'
-        run: |
-          wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy-x86_64.AppImage
-          echo "[Desktop Entry]
-          Type=Application
-          Name=Ocean
-          Exec=ocean
-          Icon=ocean
-          Categories=Utility;" > ocean.desktop
+          mkdir -p "ocean-win"
+          cp target/x86_64-pc-windows-gnu/release/ocean.exe presets static "ocean-win/" -r 2>/dev/null || true
+          zip -r "ocean-${VER}-windows.zip" ocean-win
 
-      - name: 9. Create Linux AppImage
-        if: github.event_name == 'push' || github.event.inputs.build_appimage == 'true'
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: 1
-          STRIP: strip
-        run: |
-          VER=${GITHUB_REF_NAME:-manual}
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage && chmod +x linuxdeploy-x86_64.AppImage
+          echo -e "[Desktop Entry]\nType=Application\nName=Ocean\nExec=ocean\nIcon=ocean\nCategories=Utility;" > ocean.desktop
+
           ./linuxdeploy-x86_64.AppImage --executable target/release/ocean --appdir AppDir --desktop-file ocean.desktop --icon-file static/ocean.svg --output appimage
-          cp -r presets static AppDir/usr/bin/
+          cp presets static AppDir/usr/bin/ -r 2>/dev/null || true
           ./linuxdeploy-x86_64.AppImage --appdir AppDir --output appimage
-          mv Ocean-x86_64.AppImage "ocean-${VER}-x86_64.AppImage"
+          mv Ocean-x86_64.AppImage "ocean-${VER}.AppImage"
 
-      - name: 10. Create Linux Portable Zip
-        if: github.event_name == 'push' || github.event.inputs.build_portable_zip == 'true'
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: 1
-        run: |
-          VER=${GITHUB_REF_NAME:-manual}
-          if [ ! -d "AppDir" ]; then
-            ./linuxdeploy-x86_64.AppImage --executable target/release/ocean --appdir AppDir --desktop-file ocean.desktop --icon-file static/ocean.svg
-          fi
-          LINUX_ZIP="ocean-${VER}-linux-portable"
-          mkdir -p "$LINUX_ZIP/lib"
-          cp target/release/ocean "$LINUX_ZIP/"
-          cp -r presets static "$LINUX_ZIP/"
-          cp AppDir/usr/lib/* "$LINUX_ZIP/lib/" 2>/dev/null || true
-          echo '#!/bin/bash
-          HERE="$(dirname "$(readlink -f "$0")")"
-          export LD_LIBRARY_PATH="$HERE/lib:$LD_LIBRARY_PATH"
-          exec "$HERE/ocean" "$@"' > "$LINUX_ZIP/run.sh"
-          chmod +x "$LINUX_ZIP/run.sh"
-          zip -r "${LINUX_ZIP}.zip" "$LINUX_ZIP"
+          mkdir -p "ocean-linux/lib"
+          cp target/release/ocean presets static "ocean-linux/" -r 2>/dev/null || true
+          cp AppDir/usr/lib/* "ocean-linux/lib/" 2>/dev/null || true
+          patchelf --set-rpath '$ORIGIN/lib' "ocean-linux/ocean"
+          zip -r "ocean-${VER}-linux.zip" ocean-linux
 
-      - name: 11. Upload Artifacts to GitHub Actions
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ocean-builds
+          name: builds
           path: |
             *.zip
             *.AppImage
 
-      - name: 12. Create GitHub Release
+      - name: Create Release
         if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
         uses: softprops/action-gh-release@v1
         with:

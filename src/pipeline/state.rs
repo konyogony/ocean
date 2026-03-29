@@ -172,9 +172,16 @@ impl State {
             .request_adapter(&wgpu::RequestAdapterOptionsBase {
                 power_preference: wgpu::PowerPreference::default(),
                 force_fallback_adapter: false,
-                compatible_surface: Some(&surface),
+                compatible_surface: None,
             })
-            .await?;
+            .await
+            .or_else(|_| {
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    compatible_surface: Some(&surface),
+                    ..Default::default()
+                }))
+            })
+            .expect("No GPU found. Ensure drivers are installed.");
 
         let (device, queue) = adapter
             .request_device(&wgpu::wgt::DeviceDescriptor {
