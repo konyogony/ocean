@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://ocean.konyogony.dev/ocean.svg" width="80" height="80" alt="Ocean Simulation Logo" />
+  <img src="https://ocean.konyogony.dev/static/ocean.svg" width="80" height="80" alt="Ocean Simulation Logo" />
 
 # Real-Time Ocean Simulation _in Rust_
 
